@@ -58,140 +58,6 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 const nowTimeStr = () =>
   new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
-// ============================================================================
-// INITIAL MASTER DATA & SEED (PRD v2.2)
-// ============================================================================
-const INITIAL_OUTLETS = [
-  { id: 'p-bungin', name: 'P. BUNGIN', contact: '0812-3456-7890', active: true },
-  { id: 'p-moyo-conato', name: 'P. MOYO CONATO', contact: '0813-9876-5432', active: true },
-  { id: 'p-singkep', name: 'P. SINGKEP', contact: '0811-2233-4455', active: true },
-  { id: 'bubuh-bali', name: 'BUBUH BALI', contact: '0878-6543-2109', active: true },
-  { id: 'skensa-mami', name: 'SKENSA MAMI', contact: '0857-1122-3344', active: true },
-];
-
-const INITIAL_PRODUCTS = [
-  { id: 'pudding-coklat', name: 'Pudding Coklat', price: 5000 },
-  { id: 'pudding-mangga', name: 'Pudding Mangga', price: 5000 },
-  { id: 'pudding-matcha', name: 'Pudding Matcha', price: 6000 },
-];
-
-const INITIAL_BATCHES = [
-  {
-    id: 'b-101',
-    date: '2026-11-15',
-    outlet_id: 'p-bungin',
-    product_id: 'pudding-coklat',
-    product_name: 'Pudding Coklat',
-    qty_drop: 10,
-    qty_returned: null,
-    price_unit: 5000,
-    status: 'ACTIVE',
-    payment_status: 'UNPAID',
-    paid_at: null,
-  },
-  {
-    id: 'b-102',
-    date: '2026-11-14',
-    outlet_id: 'p-bungin',
-    product_id: 'pudding-coklat',
-    product_name: 'Pudding Coklat',
-    qty_drop: 10,
-    qty_returned: 2,
-    price_unit: 5000,
-    status: 'RECONCILED',
-    payment_status: 'UNPAID',
-    paid_at: null,
-  },
-  {
-    id: 'b-103',
-    date: '2026-11-14',
-    outlet_id: 'p-moyo-conato',
-    product_id: 'pudding-coklat',
-    product_name: 'Pudding Coklat',
-    qty_drop: 12,
-    qty_returned: 0,
-    price_unit: 5000,
-    status: 'RECONCILED',
-    payment_status: 'PAID',
-    paid_at: '2026-11-14',
-  },
-  {
-    id: 'b-104',
-    date: '2026-11-15',
-    outlet_id: 'p-singkep',
-    product_id: 'pudding-coklat',
-    product_name: 'Pudding Coklat',
-    qty_drop: 8,
-    qty_returned: null,
-    price_unit: 5000,
-    status: 'ACTIVE',
-    payment_status: 'UNPAID',
-    paid_at: null,
-  },
-  {
-    id: 'b-105',
-    date: '2026-11-13',
-    outlet_id: 'bubuh-bali',
-    product_id: 'pudding-coklat',
-    product_name: 'Pudding Coklat',
-    qty_drop: 10,
-    qty_returned: 3,
-    price_unit: 5000,
-    status: 'RECONCILED',
-    payment_status: 'UNPAID',
-    paid_at: null,
-  },
-  {
-    id: 'b-106',
-    date: '2026-11-13',
-    outlet_id: 'skensa-mami',
-    product_id: 'pudding-coklat',
-    product_name: 'Pudding Coklat',
-    qty_drop: 15,
-    qty_returned: 1,
-    price_unit: 5000,
-    status: 'RECONCILED',
-    payment_status: 'PAID',
-    paid_at: '2026-11-13',
-  },
-];
-
-const INITIAL_EXPENSES = [
-  {
-    id: 'e-201',
-    date: '2026-11-13',
-    category: 'Bahan Baku Utama',
-    description: 'Susu cair full cream, bubuk coklat & agar-agar',
-    amount: 42000,
-  },
-  {
-    id: 'e-202',
-    date: '2026-11-14',
-    category: 'Kemasan',
-    description: 'Cup puding 100pcs + sendok plastik',
-    amount: 23000,
-  },
-];
-
-const INITIAL_AI_LOGS = [
-  {
-    id: 'ai-301',
-    raw_text: 'besok cuaca di denpasar hujan atau panas ya?',
-    ai_reason: 'Perintah sedang dipelajari (di luar cakupan operasional Melpud)',
-    status: 'PENDING',
-    mapped_intent: null,
-    created_at: '2026-11-15 09:15',
-  },
-  {
-    id: 'ai-302',
-    raw_text: 'drop skensa mami 12 cup coklat',
-    ai_reason: 'Perintah sedang dipelajari (pola kata baru menunggu validasi)',
-    status: 'PENDING',
-    mapped_intent: 'CREATE_DROP',
-    created_at: '2026-11-15 10:40',
-  },
-];
-
 const EXPENSE_COLORS = {
   'Bahan Baku Utama': '#5C3A21', // Coklat Pudding
   Kemasan: '#1D4ED8', // Biru Primer
@@ -209,12 +75,12 @@ export default function App() {
   });
 
 
-  // Master & Transaksi State
-  const [outlets, setOutlets] = useState(INITIAL_OUTLETS);
-  const [products, setProducts] = useState(INITIAL_PRODUCTS);
-  const [batches, setBatches] = useState(INITIAL_BATCHES);
-  const [expenses, setExpenses] = useState(INITIAL_EXPENSES);
-  const [aiLogs, setAiLogs] = useState(INITIAL_AI_LOGS);
+  // Master & Transaksi State (selalu dari Supabase)
+  const [outlets, setOutlets] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [aiLogs, setAiLogs] = useState([]);
 
   // Filter Halaman Riwayat Transaksi
   const [txFilter, setTxFilter] = useState('ALL'); // 'ALL' | 'CASH_IN' | 'UNPAID' | 'EXPENSE'
@@ -239,24 +105,48 @@ export default function App() {
     }
   }, [chatMessages, chatOpen]);
 
-  // Cek koneksi Supabase lalu muat data asli sekali saat halaman dibuka.
+  // Muat semua data dari Supabase + langganan realtime (semua tabel public).
   useEffect(() => {
-    (async () => {
+    let alive = true;
+
+    const load = async () => {
       const check = await checkSupabase();
+      if (!alive) return;
       setDbStatus({ state: check.ok ? 'ok' : 'error', message: check.message });
       if (!check.ok) return;
-      const [o, p, b, e] = await Promise.all([
-        supabase.from('outlets').select('*'),
-        supabase.from('products').select('*'),
-        supabase.from('consignment_batches').select('*'),
-        supabase.from('expenses').select('*'),
+
+      const [o, p, b, e, ai] = await Promise.all([
+        supabase.from('outlets').select('*').order('name'),
+        supabase.from('products').select('*').order('name'),
+        supabase.from('consignment_batches').select('*').order('date', { ascending: false }),
+        supabase.from('expenses').select('*').order('date', { ascending: false }),
+        supabase.from('ai_logs').select('*').order('created_at', { ascending: false }),
       ]);
-      [o, p, b, e].forEach((r) => r.error && console.error('Supabase:', r.error.message));
+      if (!alive) return;
+      [o, p, b, e, ai].forEach((r) => r.error && console.error('Supabase:', r.error.message));
       if (o.data) setOutlets(o.data.map((x) => ({ ...x, contact: x.contact ?? '-' })));
       if (p.data) setProducts(p.data);
       if (b.data) setBatches(b.data.map((x) => ({ ...x, qty_returned: x.qty_returned ?? null })));
       if (e.data) setExpenses(e.data);
-    })();
+      if (ai.data)
+        setAiLogs(
+          ai.data.map((x) => ({
+            ...x,
+            created_at: x.created_at ? new Date(x.created_at).toLocaleString('id-ID') : '',
+          }))
+        );
+    };
+
+    load();
+    const channel = supabase
+      .channel('melpud-live')
+      .on('postgres_changes', { event: '*', schema: 'public' }, load)
+      .subscribe();
+
+    return () => {
+      alive = false;
+      supabase.removeChannel(channel);
+    };
   }, []);
 
 
@@ -290,8 +180,7 @@ export default function App() {
   });
 
   // Outlet & Variant Modals
-  const [newOutletModal, setNewOutletModal] = useState(false);
-  const [newOutletForm, setNewOutletForm] = useState({ name: '', contact: '' });
+  const [outletModal, setOutletModal] = useState(null); // null | { id?, name, contact }
 
   const [variantModal, setVariantModal] = useState(false);
   const [variantForm, setVariantForm] = useState({ id: null, name: '', price: '5000' });
@@ -572,6 +461,15 @@ export default function App() {
       created_at: new Date().toLocaleString('id-ID'),
     };
     setAiLogs((prev) => [newLog, ...prev]);
+    run(
+      supabase.from('ai_logs').insert({
+        id: newLog.id,
+        raw_text: newLog.raw_text,
+        ai_reason: newLog.ai_reason,
+        status: newLog.status,
+        mapped_intent: newLog.mapped_intent,
+      })
+    );
     return {
       recognized: false,
       reply:
@@ -778,30 +676,24 @@ export default function App() {
     setEditExpenseModal(null);
   };
 
-  const handleAddOutlet = (e) => {
+  const handleSaveOutlet = (e) => {
     e.preventDefault();
-    if (!newOutletForm.name.trim()) return;
-    const id = newOutletForm.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const newId = `${id}-${Date.now()}`;
-    setOutlets((prev) => [
-      ...prev,
-      {
-        id: newId,
-        name: newOutletForm.name.toUpperCase().trim(),
-        contact: newOutletForm.contact || '-',
-        active: true,
-      },
-    ]);
-    run(
-      supabase.from('outlets').insert({
-        id: newId,
-        name: newOutletForm.name.toUpperCase().trim(),
-        contact: newOutletForm.contact || null,
-        active: true,
-      })
-    );
-    setNewOutletForm({ name: '', contact: '' });
-    setNewOutletModal(false);
+    if (!outletModal || !outletModal.name.trim()) return;
+    const name = outletModal.name.toUpperCase().trim();
+    const contact = outletModal.contact || null;
+
+    if (outletModal.id) {
+      setOutlets((prev) =>
+        prev.map((o) => (o.id === outletModal.id ? { ...o, name, contact: contact ?? '-' } : o))
+      );
+      run(supabase.from('outlets').update({ name, contact }).eq('id', outletModal.id));
+    } else {
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const newId = `${slug}-${Date.now()}`;
+      setOutlets((prev) => [...prev, { id: newId, name, contact: contact ?? '-', active: true }]);
+      run(supabase.from('outlets').insert({ id: newId, name, contact, active: true }));
+    }
+    setOutletModal(null);
   };
 
   const handleSaveVariant = (e) => {
@@ -851,34 +743,50 @@ export default function App() {
 
   const confirmDeleteAction = () => {
     if (!deleteDialog) return;
-    if (deleteDialog.type === 'batch') {
-      setBatches((prev) => prev.filter((b) => b.id !== deleteDialog.id));
-      run(supabase.from('consignment_batches').delete().eq('id', deleteDialog.id));
-    } else if (deleteDialog.type === 'expense') {
-      setExpenses((prev) => prev.filter((e) => e.id !== deleteDialog.id));
-      run(supabase.from('expenses').delete().eq('id', deleteDialog.id));
-    } else if (deleteDialog.type === 'ai') {
-      setAiLogs((prev) => prev.filter((l) => l.id !== deleteDialog.id));
-    } else if (deleteDialog.type === 'product') {
-      setProducts((prev) => prev.filter((p) => p.id !== deleteDialog.id));
-      run(supabase.from('products').delete().eq('id', deleteDialog.id));
-    }
+    const { type, id } = deleteDialog;
+    const table = {
+      batch: 'consignment_batches',
+      expense: 'expenses',
+      ai: 'ai_logs',
+      product: 'products',
+      outlet: 'outlets',
+    }[type];
+    const onDone = {
+      batch: () => setBatches((prev) => prev.filter((x) => x.id !== id)),
+      expense: () => setExpenses((prev) => prev.filter((x) => x.id !== id)),
+      ai: () => setAiLogs((prev) => prev.filter((x) => x.id !== id)),
+      product: () => setProducts((prev) => prev.filter((x) => x.id !== id)),
+      outlet: () => setOutlets((prev) => prev.filter((x) => x.id !== id)),
+    }[type];
+
     setDeleteDialog(null);
+    supabase
+      .from(table)
+      .delete()
+      .eq('id', id)
+      .then(({ error }) => {
+        if (error) {
+          console.error('Supabase:', error.message);
+          alert(`Gagal menghapus: ${error.message}`);
+          return;
+        }
+        onDone();
+      });
   };
 
   const handleValidateAiLog = (id) => {
     const chosenIntent = selectedIntents[id] || 'CREATE_DROP';
+    const ai_reason = `Telah divalidasi & dipelajari sebagai ${chosenIntent}`;
     setAiLogs((prev) =>
       prev.map((l) =>
-        l.id === id
-          ? {
-              ...l,
-              status: 'LEARNED',
-              mapped_intent: chosenIntent,
-              ai_reason: `Telah divalidasi & dipelajari sebagai ${chosenIntent}`,
-            }
-          : l
+        l.id === id ? { ...l, status: 'LEARNED', mapped_intent: chosenIntent, ai_reason } : l
       )
+    );
+    run(
+      supabase
+        .from('ai_logs')
+        .update({ status: 'LEARNED', mapped_intent: chosenIntent, ai_reason })
+        .eq('id', id)
     );
   };
 
@@ -1603,7 +1511,7 @@ export default function App() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => setNewOutletModal(true)}
+                  onClick={() => setOutletModal({ name: '', contact: '' })}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-white border border-[#5C3A21] text-[#5C3A21] hover:bg-[#F3EFEA]"
                 >
                   <Plus className="w-4 h-4" /> + Outlet Baru
@@ -1661,21 +1569,19 @@ export default function App() {
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
-                      {products.length > 1 && (
-                        <button
-                          onClick={() =>
-                            setDeleteDialog({
-                              type: 'product',
-                              id: prod.id,
-                              title: `Varian ${prod.name}`,
-                            })
-                          }
-                          className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
-                          title="Hapus Varian"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <button
+                        onClick={() =>
+                          setDeleteDialog({
+                            type: 'product',
+                            id: prod.id,
+                            title: `Varian ${prod.name}`,
+                          })
+                        }
+                        className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
+                        title="Hapus Varian"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1702,9 +1608,29 @@ export default function App() {
                       <h4 className="font-extrabold text-sm text-[#141414]">{o.name}</h4>
                       <p className="text-xs text-[#786B5E] mt-0.5">Kontak: {o.contact}</p>
                     </div>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-[#15803D]">
-                      Aktif
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-[#15803D]">
+                        Aktif
+                      </span>
+                      <button
+                        onClick={() =>
+                          setOutletModal({ id: o.id, name: o.name, contact: o.contact })
+                        }
+                        className="p-2 rounded-lg bg-amber-50 text-[#D97706] border border-amber-200 hover:bg-amber-100"
+                        title="Edit Outlet"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setDeleteDialog({ type: 'outlet', id: o.id, title: `Outlet ${o.name}` })
+                        }
+                        className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
+                        title="Hapus Outlet"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2564,16 +2490,16 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 6: TAMBAH OUTLET BARU (COKLAT) */}
-      {newOutletModal && (
+      {/* MODAL 6: TAMBAH / EDIT OUTLET (COKLAT) */}
+      {outletModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
-            onSubmit={handleAddOutlet}
+            onSubmit={handleSaveOutlet}
             className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#5C3A21]"
           >
             <div className="flex items-center gap-2 text-[#5C3A21] font-extrabold">
               <Store className="w-5 h-5" />
-              <h3>Tambah Outlet Mitra Baru</h3>
+              <h3>{outletModal.id ? 'Edit Outlet Mitra' : 'Tambah Outlet Mitra Baru'}</h3>
             </div>
             <div>
               <label className="block text-xs font-bold text-[#4A3F35] mb-1">
@@ -2583,10 +2509,8 @@ export default function App() {
                 type="text"
                 required
                 placeholder="Contoh: P. TANJUNG"
-                value={newOutletForm.name}
-                onChange={(e) =>
-                  setNewOutletForm({ ...newOutletForm, name: e.target.value })
-                }
+                value={outletModal.name}
+                onChange={(e) => setOutletModal({ ...outletModal, name: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
               />
             </div>
@@ -2597,17 +2521,15 @@ export default function App() {
               <input
                 type="text"
                 placeholder="0812-xxxx-xxxx"
-                value={newOutletForm.contact}
-                onChange={(e) =>
-                  setNewOutletForm({ ...newOutletForm, contact: e.target.value })
-                }
+                value={outletModal.contact ?? ''}
+                onChange={(e) => setOutletModal({ ...outletModal, contact: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setNewOutletModal(false)}
+                onClick={() => setOutletModal(null)}
                 className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
               >
                 Batal

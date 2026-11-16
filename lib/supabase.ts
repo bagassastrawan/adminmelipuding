@@ -23,7 +23,12 @@ const blocked = {
   update: () => blocked,
   delete: () => blocked,
   eq: () => blocked,
+  order: () => blocked,
   limit: () => blocked,
+  channel: () => blocked,
+  on: () => blocked,
+  subscribe: () => blocked,
+  removeChannel: () => undefined,
   then: (resolve: (v: unknown) => unknown) =>
     resolve({ data: null, error: { message: missingEnvMessage } }),
 }
