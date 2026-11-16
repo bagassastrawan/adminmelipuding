@@ -1,5 +1,27 @@
--- Melpud v2.3 — AI training logs + Realtime untuk semua tabel.
+-- Melpud v2.3 — AI training logs + Realtime + kolom yang belum ada.
 -- Idempoten: aman dijalankan ulang. Jalankan di Supabase SQL Editor.
+--
+-- Catatan: migration 001 dijalankan tanpa bagian ALTER TABLE-nya, sehingga
+-- trigger updated_at menolak semua UPDATE (error 42703). Baris berikut
+-- melengkapi kolomnya.
+
+alter table public.outlets add column if not exists updated_at timestamptz not null default now();
+alter table public.products add column if not exists active boolean not null default true;
+alter table public.products add column if not exists updated_at timestamptz not null default now();
+alter table public.consignment_batches add column if not exists updated_at timestamptz not null default now();
+alter table public.expenses add column if not exists updated_at timestamptz not null default now();
+
+-- Perbaikan data satu kali: input di jam 00:00–07:59 WITA tercatat dengan tanggal UTC
+-- (kemarin). Tanggal disesuaikan dengan tanggal pembuatan versi WITA. Idempoten.
+update public.consignment_batches
+set date = (created_at at time zone 'Asia/Makassar')::date
+where date = (created_at at time zone 'UTC')::date
+  and date < (created_at at time zone 'Asia/Makassar')::date;
+
+update public.expenses
+set date = (created_at at time zone 'Asia/Makassar')::date
+where date = (created_at at time zone 'UTC')::date
+  and date < (created_at at time zone 'Asia/Makassar')::date;
 
 create table if not exists public.ai_logs (
   id text primary key default gen_random_uuid()::text,
