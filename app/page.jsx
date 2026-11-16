@@ -39,10 +39,14 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { supabase, checkSupabase } from '@/lib/supabase';
 
 // ============================================================================
 // HELPER FORMATTERS
 // ============================================================================
+const run = (q) =>
+  q.then(({ error }) => error && console.error('Supabase:', error.message));
+
 const formatIDR = (val) =>
   new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -198,6 +202,13 @@ export default function App() {
   // 5 Halaman Utama: 'dashboard' | 'reports' | 'transactions' | 'outlets-variants' | 'ai-validation'
   const [activeTab, setActiveTab] = useState('dashboard');
 
+  // Status koneksi Supabase untuk indikator di UI.
+  const [dbStatus, setDbStatus] = useState({
+    state: 'checking',
+    message: 'Memeriksa koneksi Supabase…',
+  });
+
+
   // Master & Transaksi State
   const [outlets, setOutlets] = useState(INITIAL_OUTLETS);
   const [products, setProducts] = useState(INITIAL_PRODUCTS);
@@ -227,6 +238,35 @@ export default function App() {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chatMessages, chatOpen]);
+
+  // Cek koneksi Supabase lalu muat data asli sekali saat halaman dibuka.
+  useEffect(() => {
+    (async () => {
+      const check = await checkSupabase();
+      setDbStatus({ state: check.ok ? 'ok' : 'error', message: check.message });
+      if (!check.ok) return;
+      const [o, p, b, e] = await Promise.all([
+        supabase.from('m_outlets').select('*'),
+        supabase.from('m_products').select('*'),
+        supabase.from('m_consignment_batches').select('*'),
+        supabase.from('m_expenses').select('*'),
+      ]);
+      [o, p, b, e].forEach((r) => r.error && console.error('Supabase:', r.error.message));
+      if (o.data)
+        setOutlets(
+          o.data.map((x) => ({
+            id: x.id,
+            name: x.name,
+            contact: x.contact ?? '-',
+            active: x.status === 'active',
+          }))
+        );
+      if (p.data) setProducts(p.data);
+      if (b.data) setBatches(b.data.map((x) => ({ ...x, qty_returned: x.qty_returned ?? null })));
+      if (e.data) setExpenses(e.data);
+    })();
+  }, []);
+
 
   // Modals State
   const [dropModal, setDropModal] = useState({ open: false, outletId: 'p-bungin' });
@@ -381,6 +421,7 @@ export default function App() {
           amount,
         };
         setExpenses((prev) => [newExp, ...prev]);
+        run(supabase.from('m_expenses').insert(newExp));
         return {
           recognized: true,
           reply: `Berhasil dicatat ke Uang Keluar (${category}): "${rawText}" sebesar ${formatIDR(
@@ -423,6 +464,17 @@ export default function App() {
                 }
               : b
           )
+        );
+        run(
+          supabase
+            .from('m_consignment_batches')
+            .update({
+              qty_returned: safeRet,
+              status: 'RECONCILED',
+              payment_status: isPaid ? 'PAID' : 'UNPAID',
+              paid_at: isPaid ? todayStr() : null,
+            })
+            .eq('id', targetBatch.id)
         );
         return {
           recognized: true,
@@ -469,6 +521,14 @@ export default function App() {
             : b
         )
       );
+      run(
+        supabase
+          .from('m_consignment_batches')
+          .update({ payment_status: 'PAID', paid_at: todayStr() })
+          .eq('outlet_id', matchedOutlet.id)
+          .eq('status', 'RECONCILED')
+          .eq('payment_status', 'UNPAID')
+      );
       return {
         recognized: true,
         reply: `Status pembayaran ${matchedOutlet.name} diubah menjadi PAID (Lunas). Uang masuk bertambah ${formatIDR(
@@ -503,6 +563,7 @@ export default function App() {
         paid_at: null,
       };
       setBatches((prev) => [newBatch, ...prev]);
+      run(supabase.from('m_consignment_batches').insert({ ...newBatch, qty_returned: 0 }));
       return {
         recognized: true,
         reply: `Berhasil mencatat titipan ${qty} cup ${matchedProduct.name} di outlet ${matchedOutlet.name} pada tanggal ${todayStr()}.`,
@@ -572,6 +633,7 @@ export default function App() {
       paid_at: null,
     };
     setBatches((prev) => [newBatch, ...prev]);
+    run(supabase.from('m_consignment_batches').insert({ ...newBatch, qty_returned: 0 }));
     setDropModal({ open: false, outletId: 'p-bungin' });
   };
 
@@ -595,6 +657,17 @@ export default function App() {
           : b
       )
     );
+    run(
+      supabase
+        .from('m_consignment_batches')
+        .update({
+          qty_returned: safeRet,
+          status: 'RECONCILED',
+          payment_status: reconcileForm.paidNow ? 'PAID' : 'UNPAID',
+          paid_at: reconcileForm.paidNow ? todayStr() : null,
+        })
+        .eq('id', reconcileModal.id)
+    );
     setReconcileModal(null);
   };
 
@@ -611,6 +684,15 @@ export default function App() {
           : b
       )
     );
+    run(
+      supabase
+        .from('m_consignment_batches')
+        .update({
+          payment_status: nextStatus,
+          paid_at: nextStatus === 'PAID' ? todayStr() : null,
+        })
+        .eq('id', batch.id)
+    );
   };
 
   const handleSettleAllOutlet = (outletId) => {
@@ -620,6 +702,14 @@ export default function App() {
           ? { ...b, payment_status: 'PAID', paid_at: todayStr() }
           : b
       )
+    );
+    run(
+      supabase
+        .from('m_consignment_batches')
+        .update({ payment_status: 'PAID', paid_at: todayStr() })
+        .eq('outlet_id', outletId)
+        .eq('status', 'RECONCILED')
+        .eq('payment_status', 'UNPAID')
     );
   };
 
@@ -639,6 +729,12 @@ export default function App() {
           : b
       )
     );
+    run(
+      supabase
+        .from('m_consignment_batches')
+        .update({ qty_drop: newDrop, qty_returned: newRet ?? 0 })
+        .eq('id', editBatchModal.id)
+    );
     setEditBatchModal(null);
   };
 
@@ -652,6 +748,7 @@ export default function App() {
       amount: Math.max(100, Number(expenseForm.amount)),
     };
     setExpenses((prev) => [newExp, ...prev]);
+    run(supabase.from('m_expenses').insert(newExp));
     setExpenseForm({
       category: 'Bahan Baku Utama',
       description: '',
@@ -676,6 +773,16 @@ export default function App() {
           : item
       )
     );
+    run(
+      supabase
+        .from('m_expenses')
+        .update({
+          category: editExpenseForm.category,
+          description: editExpenseForm.description,
+          amount: Math.max(100, Number(editExpenseForm.amount)),
+        })
+        .eq('id', editExpenseModal.id)
+    );
     setEditExpenseModal(null);
   };
 
@@ -683,15 +790,24 @@ export default function App() {
     e.preventDefault();
     if (!newOutletForm.name.trim()) return;
     const id = newOutletForm.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const newId = `${id}-${Date.now()}`;
     setOutlets((prev) => [
       ...prev,
       {
-        id: `${id}-${Date.now()}`,
+        id: newId,
         name: newOutletForm.name.toUpperCase().trim(),
         contact: newOutletForm.contact || '-',
         active: true,
       },
     ]);
+    run(
+      supabase.from('m_outlets').insert({
+        id: newId,
+        name: newOutletForm.name.toUpperCase().trim(),
+        contact: newOutletForm.contact || null,
+        status: 'active',
+      })
+    );
     setNewOutletForm({ name: '', contact: '' });
     setNewOutletModal(false);
   };
@@ -708,17 +824,34 @@ export default function App() {
             : p
         )
       );
+      run(
+        supabase
+          .from('m_products')
+          .update({
+            name: variantForm.name.trim(),
+            price: Math.max(500, Number(variantForm.price)),
+          })
+          .eq('id', variantForm.id)
+      );
     } else {
       // Create new variant
       const slug = variantForm.name.toLowerCase().replace(/\s+/g, '-');
+      const newId = `${slug}-${Date.now()}`;
       setProducts((prev) => [
         ...prev,
         {
-          id: `${slug}-${Date.now()}`,
+          id: newId,
           name: variantForm.name.trim(),
           price: Math.max(500, Number(variantForm.price)),
         },
       ]);
+      run(
+        supabase.from('m_products').insert({
+          id: newId,
+          name: variantForm.name.trim(),
+          price: Math.max(500, Number(variantForm.price)),
+        })
+      );
     }
     setVariantForm({ id: null, name: '', price: '5000' });
     setVariantModal(false);
@@ -728,12 +861,15 @@ export default function App() {
     if (!deleteDialog) return;
     if (deleteDialog.type === 'batch') {
       setBatches((prev) => prev.filter((b) => b.id !== deleteDialog.id));
+      run(supabase.from('m_consignment_batches').delete().eq('id', deleteDialog.id));
     } else if (deleteDialog.type === 'expense') {
       setExpenses((prev) => prev.filter((e) => e.id !== deleteDialog.id));
+      run(supabase.from('m_expenses').delete().eq('id', deleteDialog.id));
     } else if (deleteDialog.type === 'ai') {
       setAiLogs((prev) => prev.filter((l) => l.id !== deleteDialog.id));
     } else if (deleteDialog.type === 'product') {
       setProducts((prev) => prev.filter((p) => p.id !== deleteDialog.id));
+      run(supabase.from('m_products').delete().eq('id', deleteDialog.id));
     }
     setDeleteDialog(null);
   };
@@ -962,6 +1098,28 @@ export default function App() {
           MAIN CONTENT AREA
       ===================================================================== */}
       <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 pb-24">
+        {/* Indikator koneksi Supabase (terlihat di semua tab) */}
+        <div
+          className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border px-3 py-2 text-xs font-bold ${
+            dbStatus.state === 'ok'
+              ? 'bg-[#15803D]/10 border-[#15803D]/30 text-[#15803D]'
+              : dbStatus.state === 'error'
+              ? 'bg-[#DC2626]/10 border-[#DC2626]/30 text-[#DC2626]'
+              : 'bg-[#FAF8F5] border-[#E6DFD5] text-[#786B5E]'
+          }`}
+        >
+          <span>
+            {dbStatus.state === 'ok'
+              ? 'Supabase terhubung'
+              : dbStatus.state === 'error'
+              ? 'Supabase gagal terhubung'
+              : 'Memeriksa koneksi Supabase…'}
+          </span>
+          {dbStatus.state !== 'checking' && (
+            <span className="font-medium opacity-80">— {dbStatus.message}</span>
+          )}
+        </div>
+
         {/* ===================================================================
             HALAMAN 1: DASHBOARD UTAMA (METRIK KAS & 5 KARTU OUTLET INTERAKTIF)
             (Tanpa tombol +Titip Pudding & +Belanja Bahan di atas, dan tanpa grafik)
