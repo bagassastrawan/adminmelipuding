@@ -4,7 +4,7 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 export const missingEnvMessage = `Supabase env kosong: ${
-  [!url && 'NEXT_PUBLIC_SUPABASE_URL', !key && 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
+  [!url && 'NEXT_PUBLIC_SUPABASE_URL', !key && 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY']
     .filter(Boolean)
     .join(' & ') || 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
 }. Di Vercel: Settings → Environment Variables, lalu Redeploy.`
