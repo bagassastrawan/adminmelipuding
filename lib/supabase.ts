@@ -25,6 +25,7 @@ const blocked = {
   eq: () => blocked,
   order: () => blocked,
   limit: () => blocked,
+  rpc: () => blocked,
   channel: () => blocked,
   on: () => blocked,
   subscribe: () => blocked,

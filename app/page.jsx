@@ -242,9 +242,13 @@ export default function App() {
   );
 
   // ============================================================================
-  // WHATSAPP-STYLE AI AGENT PARSER & AUTO-EXECUTION
+  // WHATSAPP-STYLE AI AGENT: PARSE -> KARTU KONFIRMASI -> EKSEKUSI VIA RPC
   // ============================================================================
-  const processAndExecuteAiChat = (rawText) => {
+  // Parser HANYA memetakan perintah menjadi aksi yang diizinkan
+  // (CREATE_DROP, RECONCILE_BATCH, SETTLE_PAYMENT, RECORD_EXPENSE).
+  // Tidak ada satu pun tulis data di sini: database baru disentuh setelah
+  // admin menekan "Konfirmasi & Jalankan" pada kartu konfirmasi di chat.
+  const parseAiCommand = (rawText) => {
     const text = rawText.toLowerCase().trim();
 
     const matchedOutlet = outlets.find((o) => {
@@ -273,7 +277,34 @@ export default function App() {
       return keyWord && text.includes(keyWord);
     });
 
-    // 1. EXPENSE (Uang Keluar Belanja Bahan)
+    // Perintah ambigu/tidak lengkap: DILARANG menyentuh tabel operasional.
+    // Cukup dicatat ke ai_logs berstatus PENDING lalu minta klarifikasi.
+    const refuse = (intent, reason, hint) => {
+      const newLog = {
+        id: `ai-${Date.now()}`,
+        raw_text: rawText,
+        ai_reason: `${reason} Menunggu klarifikasi admin.`,
+        status: 'PENDING',
+        mapped_intent: intent,
+        created_at: new Date().toLocaleString('id-ID'),
+      };
+      setAiLogs((prev) => [newLog, ...prev]);
+      run(
+        supabase.from('ai_logs').insert({
+          id: newLog.id,
+          raw_text: newLog.raw_text,
+          ai_reason: newLog.ai_reason,
+          status: newLog.status,
+          mapped_intent: newLog.mapped_intent,
+        })
+      );
+      return {
+        type: 'pending',
+        reply: `Belum ada data yang diubah. ${reason} ${hint}`,
+      };
+    };
+
+    // 1. EXPENSE (Uang Keluar Belanja Bahan) -> kartu konfirmasi
     if (
       text.includes('belanja') ||
       text.includes('beli') ||
@@ -281,46 +312,65 @@ export default function App() {
       (customLearned && customLearned.mapped_intent === 'RECORD_EXPENSE')
     ) {
       const amount = parseNominal(text);
-      if (amount) {
-        let category = 'Bahan Baku Utama';
-        if (
-          text.includes('cup') ||
-          text.includes('sendok') ||
-          text.includes('plastik') ||
-          text.includes('stiker')
-        ) {
-          category = 'Kemasan';
-        } else if (
-          text.includes('bensin') ||
-          text.includes('gas') ||
-          text.includes('operasional')
-        ) {
-          category = 'Operasional Lainnya';
-        }
-
-        const newExp = {
-          id: `e-${Date.now()}`,
-          date: todayStr(),
-          category,
-          description: rawText,
-          amount,
-        };
-        setExpenses((prev) => [newExp, ...prev]);
-        run(supabase.from('expenses').insert(newExp));
-        return {
-          recognized: true,
-          reply: `Berhasil dicatat ke Uang Keluar (${category}): "${rawText}" sebesar ${formatIDR(
-            amount
-          )}. Saldo kas otomatis dipotong.`,
-        };
+      if (!amount) {
+        return refuse(
+          'RECORD_EXPENSE',
+          'Nominal belanjanya tidak saya tangkap.',
+          'Contoh: "belanja bahan 120rb".'
+        );
       }
+      let category = 'Bahan Baku Utama';
+      if (
+        text.includes('cup') ||
+        text.includes('sendok') ||
+        text.includes('plastik') ||
+        text.includes('stiker')
+      ) {
+        category = 'Kemasan';
+      } else if (
+        text.includes('bensin') ||
+        text.includes('gas') ||
+        text.includes('operasional')
+      ) {
+        category = 'Operasional Lainnya';
+      }
+
+      return {
+        type: 'confirm',
+        action: 'RECORD_EXPENSE',
+        payload: { date: todayStr(), category, description: rawText, amount },
+        intro: 'Saya siap catat uang keluar. Periksa detailnya lalu tekan tombol di bawah:',
+        summary: [
+          ['Kategori', category],
+          ['Uraian', rawText],
+          ['Nominal', formatIDR(amount)],
+          ['Tanggal', todayStr()],
+          ['Aksi', 'RECORD_EXPENSE'],
+        ],
+      };
     }
 
-    // 2. RECONCILE / SISA CUP
-    if ((text.includes('sisa') || text.includes('retur')) && matchedOutlet) {
+    // 2. RECONCILE / SISA CUP -> kartu konfirmasi.
+    //    Rekonsiliasi TIDAK PERNAH menyetel pembayaran ke PAID kecuali
+    //    perintah eksplisit menyebut "lunas/sudah dibayar".
+    if (text.includes('sisa') || text.includes('retur')) {
+      if (!matchedOutlet) {
+        return refuse(
+          'RECONCILE_BATCH',
+          'Nama outletnya tidak jelas.',
+          'Sebutkan outletnya, misal: "sisa 2 cup P. BUNGIN".'
+        );
+      }
       const sisaMatch =
         text.match(/(?:sisa|retur)\s*(\d+)/i) || text.match(/(\d+)\s*cup/i);
-      const qtyReturned = sisaMatch ? parseInt(sisaMatch[1], 10) : 0;
+      if (!sisaMatch) {
+        return refuse(
+          'RECONCILE_BATCH',
+          'Jumlah sisa/returnya tidak disebutkan.',
+          'Sebutkan jumlahnya, misal: "sisa 2 cup P. BUNGIN".'
+        );
+      }
+      const qtyReturned = parseInt(sisaMatch[1], 10);
       const isPaid =
         (text.includes('sudah dibayar') ||
           text.includes('udah bayar') ||
@@ -332,153 +382,150 @@ export default function App() {
         (b) => b.outlet_id === matchedOutlet.id && b.status === 'ACTIVE'
       );
 
-      if (targetBatch) {
-        const safeRet = Math.min(targetBatch.qty_drop, Math.max(0, qtyReturned));
-        const sold = targetBatch.qty_drop - safeRet;
-        const bill = sold * targetBatch.price_unit;
-
-        setBatches((prev) =>
-          prev.map((b) =>
-            b.id === targetBatch.id
-              ? {
-                  ...b,
-                  qty_returned: safeRet,
-                  status: 'RECONCILED',
-                  payment_status: isPaid ? 'PAID' : 'UNPAID',
-                  paid_at: isPaid ? todayStr() : null,
-                }
-              : b
-          )
-        );
-        run(
-          supabase
-            .from('consignment_batches')
-            .update({
-              qty_returned: safeRet,
-              status: 'RECONCILED',
-              payment_status: isPaid ? 'PAID' : 'UNPAID',
-              paid_at: isPaid ? todayStr() : null,
-            })
-            .eq('id', targetBatch.id)
-        );
+      if (!targetBatch) {
         return {
-          recognized: true,
-          reply: `Rekonsiliasi ${matchedOutlet.name} selesai: Sisa ${safeRet} cup (Laku ${sold} cup = ${formatIDR(
-            bill
-          )}). Status: ${isPaid ? 'PAID (Lunas)' : 'UNPAID (Belum Dibayar)'}.`,
-        };
-      } else {
-        return {
-          recognized: true,
-          reply: `Saat ini tidak ada stok berstatus ACTIVE di ${matchedOutlet.name} untuk dihitung sisanya.`,
+          type: 'reply',
+          reply: `Saat ini tidak ada stok berstatus ACTIVE di ${matchedOutlet.name} untuk dihitung sisanya. Tidak ada data yang diubah.`,
         };
       }
+
+      const safeRet = Math.min(targetBatch.qty_drop, Math.max(0, qtyReturned));
+      const sold = targetBatch.qty_drop - safeRet;
+      const bill = sold * targetBatch.price_unit;
+
+      return {
+        type: 'confirm',
+        action: 'RECONCILE_BATCH',
+        payload: {
+          outletId: matchedOutlet.id,
+          qtyReturned: safeRet,
+          paymentStatus: isPaid ? 'PAID' : 'UNPAID',
+        },
+        intro: 'Saya siap rekonsiliasi titipan ini. Periksa detailnya lalu tekan tombol di bawah:',
+        summary: [
+          ['Outlet', matchedOutlet.name],
+          ['Tanggal titip', targetBatch.date],
+          ['Qty drop', `${targetBatch.qty_drop} cup`],
+          ['Qty retur', `${safeRet} cup`],
+          ['Laku', `${sold} cup = ${formatIDR(bill)}`],
+          [
+            'Status bayar',
+            isPaid ? 'PAID (lunas, sesuai perintah)' : 'UNPAID (menumpuk jadi piutang)',
+          ],
+          ['Aksi', 'RECONCILE_BATCH'],
+        ],
+      };
     }
 
-    // 3. PELUNASAN (SETTLE PAYMENT)
-    if (
+    // 3. PELUNASAN (SETTLE PAYMENT) -> kartu konfirmasi.
+    //    Hanya baris RECONCILED + UNPAID milik outlet yang disebut
+    //    (atau 'ALL' bila eksplisit "bayar semua outlet") yang disentuh.
+    const wantsSettle =
       (text.includes('lunas') ||
         text.includes('sudah dibayar') ||
-        text.includes('udah bayar')) &&
+        text.includes('udah bayar') ||
+        text.includes('bayar semua') ||
+        text.includes('pelunasan')) &&
       !text.includes('belum') &&
-      !text.includes('belom') &&
-      matchedOutlet
-    ) {
+      !text.includes('belom');
+    if (wantsSettle) {
+      const scope = matchedOutlet
+        ? matchedOutlet.id
+        : /semua outlet|seluruh outlet/.test(text)
+        ? 'ALL'
+        : null;
+      if (!scope) {
+        return refuse(
+          'SETTLE_PAYMENT',
+          'Outlet yang mau dilunasi tidak jelas.',
+          'Sebutkan outletnya, atau tulis "bayar semua outlet" untuk melunasi semuanya.'
+        );
+      }
+
       const unpaid = enrichedBatches.filter(
         (b) =>
-          b.outlet_id === matchedOutlet.id &&
           b.status === 'RECONCILED' &&
-          b.payment_status === 'UNPAID'
+          b.payment_status === 'UNPAID' &&
+          (scope === 'ALL' || b.outlet_id === scope)
       );
       if (unpaid.length === 0) {
         return {
-          recognized: true,
-          reply: `Semua tagihan di ${matchedOutlet.name} sudah berstatus PAID (Lunas).`,
+          type: 'reply',
+          reply: `Semua tagihan ${
+            scope === 'ALL' ? 'seluruh outlet' : `di ${matchedOutlet.name}`
+          } sudah berstatus PAID (Lunas). Tidak ada data yang diubah.`,
         };
       }
       const totalSettled = unpaid.reduce((s, b) => s + b.total_bill, 0);
-      setBatches((prev) =>
-        prev.map((b) =>
-          b.outlet_id === matchedOutlet.id &&
-          b.status === 'RECONCILED' &&
-          b.payment_status === 'UNPAID'
-            ? { ...b, payment_status: 'PAID', paid_at: todayStr() }
-            : b
-        )
-      );
-      run(
-        supabase
-          .from('consignment_batches')
-          .update({ payment_status: 'PAID', paid_at: todayStr() })
-          .eq('outlet_id', matchedOutlet.id)
-          .eq('status', 'RECONCILED')
-          .eq('payment_status', 'UNPAID')
-      );
+
       return {
-        recognized: true,
-        reply: `Status pembayaran ${matchedOutlet.name} diubah menjadi PAID (Lunas). Uang masuk bertambah ${formatIDR(
-          totalSettled
-        )}.`,
+        type: 'confirm',
+        action: 'SETTLE_PAYMENT',
+        payload: { outletId: scope },
+        intro: 'Saya siap melunasi tagihan berikut. Periksa detailnya lalu tekan tombol di bawah:',
+        summary: [
+          ['Outlet', scope === 'ALL' ? 'SEMUA OUTLET' : matchedOutlet.name],
+          ['Jumlah batch', `${unpaid.length} batch RECONCILED + UNPAID`],
+          ['Total tagihan', formatIDR(totalSettled)],
+          ['Efek', 'Berpindah dari piutang ke kas riil (PAID)'],
+          ['Aksi', 'SETTLE_PAYMENT'],
+        ],
       };
     }
 
-    // 4. CREATE DROP (TITIP PUDDING)
+    // 4. CREATE DROP (TITIP PUDDING) -> kartu konfirmasi
     if (
-      (text.includes('taruh') ||
-        text.includes('titip') ||
-        text.includes('naruh') ||
-        text.includes('masukkan') ||
-        (customLearned && customLearned.mapped_intent === 'CREATE_DROP')) &&
-      matchedOutlet
+      text.includes('taruh') ||
+      text.includes('titip') ||
+      text.includes('naruh') ||
+      text.includes('masukkan') ||
+      (customLearned && customLearned.mapped_intent === 'CREATE_DROP')
     ) {
-      const qtyMatch = text.match(/(\d+)\s*(?:cup|pcs|puding|pudding)?/i);
-      const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 10;
+      if (!matchedOutlet) {
+        return refuse(
+          'CREATE_DROP',
+          'Outlet tujuannya tidak jelas.',
+          'Sebutkan outletnya, misal: "titip 10 cup ke P. BUNGIN".'
+        );
+      }
+      const qtyMatch = text.match(/\b(\d{1,4})\b/);
+      if (!qtyMatch) {
+        return refuse(
+          'CREATE_DROP',
+          'Jumlah cup yang dititip tidak disebutkan.',
+          'Sebutkan jumlahnya, misal: "titip 10 cup ke P. BUNGIN".'
+        );
+      }
+      const qty = parseInt(qtyMatch[1], 10);
 
-      const newBatch = {
-        id: `b-${Date.now()}`,
-        date: todayStr(),
-        outlet_id: matchedOutlet.id,
-        product_id: matchedProduct.id,
-        product_name: matchedProduct.name,
-        qty_drop: qty,
-        qty_returned: null,
-        price_unit: matchedProduct.price,
-        status: 'ACTIVE',
-        payment_status: 'UNPAID',
-        paid_at: null,
-      };
-      setBatches((prev) => [newBatch, ...prev]);
-      run(supabase.from('consignment_batches').insert({ ...newBatch, qty_returned: 0 }));
       return {
-        recognized: true,
-        reply: `Berhasil mencatat titipan ${qty} cup ${matchedProduct.name} di outlet ${matchedOutlet.name} pada tanggal ${todayStr()}.`,
+        type: 'confirm',
+        action: 'CREATE_DROP',
+        payload: {
+          date: todayStr(),
+          outletId: matchedOutlet.id,
+          productId: matchedProduct.id,
+          qty,
+        },
+        intro: 'Saya siap mencatat titipan baru. Periksa detailnya lalu tekan tombol di bawah:',
+        summary: [
+          ['Outlet', matchedOutlet.name],
+          ['Tanggal', todayStr()],
+          ['Varian', matchedProduct.name],
+          ['Qty drop', `${qty} cup`],
+          ['Harga/cup', formatIDR(matchedProduct.price)],
+          ['Total potensi', formatIDR(qty * matchedProduct.price)],
+          ['Aksi', 'CREATE_DROP'],
+        ],
       };
     }
 
-    // 5. PERINTAH BARU / TIDAK DIKENALI -> MASUK KE VALIDASI AI
-    const newLog = {
-      id: `ai-${Date.now()}`,
-      raw_text: rawText,
-      ai_reason: 'Perintah sedang dipelajari dan menunggu validasi admin',
-      status: 'PENDING',
-      mapped_intent: 'CREATE_DROP',
-      created_at: new Date().toLocaleString('id-ID'),
-    };
-    setAiLogs((prev) => [newLog, ...prev]);
-    run(
-      supabase.from('ai_logs').insert({
-        id: newLog.id,
-        raw_text: newLog.raw_text,
-        ai_reason: newLog.ai_reason,
-        status: newLog.status,
-        mapped_intent: newLog.mapped_intent,
-      })
+    // 5. PERINTAH TIDAK DIKENALI / AMBIGU -> tolak, catat PENDING, minta klarifikasi
+    return refuse(
+      null,
+      'Perintahnya belum saya kenali.',
+      'Coba ulangi dengan kata kunci yang lebih jelas, misal: "titip 10 cup ke P. BUNGIN", "sisa 2 cup P. BUNGIN", "bayar semua outlet P. BUNGIN", atau "belanja bahan 120rb".'
     );
-    return {
-      recognized: false,
-      reply:
-        'Perintah sedang dipelajari dan telah dimasukkan ke halaman Validasi AI.',
-    };
   };
 
   const handleSendChat = (e) => {
@@ -495,16 +542,131 @@ export default function App() {
     setChatInput('');
 
     setTimeout(() => {
-      const res = processAndExecuteAiChat(text);
-      const botMsg = {
-        id: `b-${Date.now() + 1}`,
-        sender: 'bot',
-        text: res.reply,
-        isLearning: !res.recognized,
-        time: nowTimeStr(),
-      };
-      setChatMessages((prev) => [...prev, botMsg]);
+      const res = parseAiCommand(text);
+      if (res.type === 'confirm') {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `b-${Date.now() + 1}`,
+            sender: 'bot',
+            text: res.intro,
+            time: nowTimeStr(),
+            confirm: { action: res.action, payload: res.payload, summary: res.summary },
+            confirmState: 'idle',
+          },
+        ]);
+      } else {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `b-${Date.now() + 1}`,
+            sender: 'bot',
+            text: res.reply,
+            isLearning: res.type === 'pending',
+            time: nowTimeStr(),
+          },
+        ]);
+      }
     }, 250);
+  };
+
+  // ============================================================================
+  // EKSEKUSI AI: HANYA DIPANGGIL DARI TOMBOL KARTU KONFIRMASI DI CHAT
+  // ============================================================================
+  const setConfirmState = (msgId, state) =>
+    setChatMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, confirmState: state } : m))
+    );
+
+  const appendBot = (text) =>
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        sender: 'bot',
+        text,
+        time: nowTimeStr(),
+      },
+    ]);
+
+  // Segarkan tabel terkait dari Supabase setelah RPC sukses (sumber kebenaran
+  // tetap database; realtime akan menyusul bila migration 002 sudah jalan).
+  const refreshAfterAction = async (action) => {
+    if (action === 'RECORD_EXPENSE') {
+      const { data } = await supabase
+        .from('expenses')
+        .select('*')
+        .order('date', { ascending: false });
+      if (data) setExpenses(data);
+    } else {
+      const { data } = await supabase
+        .from('consignment_batches')
+        .select('*')
+        .order('date', { ascending: false });
+      if (data) setBatches(data.map((x) => ({ ...x, qty_returned: x.qty_returned ?? null })));
+    }
+  };
+
+  const confirmedReply = (action, payload, count) => {
+    if (count === 0) {
+      return `Tidak ada baris yang cocok, tidak ada data yang diubah (${action}).`;
+    }
+    if (action === 'CREATE_DROP') {
+      const o = outlets.find((x) => x.id === payload.outletId);
+      const p = products.find((x) => x.id === payload.productId);
+      return `Berhasil mencatat titipan ${payload.qty} cup ${p?.name ?? ''} di outlet ${
+        o?.name ?? payload.outletId
+      } pada tanggal ${payload.date}.`;
+    }
+    if (action === 'RECONCILE_BATCH') {
+      const o = outlets.find((x) => x.id === payload.outletId);
+      return `Rekonsiliasi ${o?.name ?? payload.outletId} selesai: sisa ${payload.qtyReturned} cup. Status: ${
+        payload.paymentStatus === 'PAID'
+          ? 'PAID (Lunas)'
+          : 'UNPAID (menumpuk jadi piutang)'
+      }.`;
+    }
+    if (action === 'SETTLE_PAYMENT') {
+      const scope =
+        payload.outletId === 'ALL'
+          ? 'semua outlet'
+          : outlets.find((x) => x.id === payload.outletId)?.name ?? payload.outletId;
+      return `${count} batch lunas (PAID) di ${scope} — nilainya berpindah dari piutang ke kas riil.`;
+    }
+    if (action === 'RECORD_EXPENSE') {
+      return `Berhasil dicatat ke Uang Keluar (${payload.category}): "${payload.description}" sebesar ${formatIDR(
+        payload.amount
+      )} tanggal ${payload.date}. Saldo kas otomatis dipotong.`;
+    }
+    return `Aksi ${action} selesai (${count} baris).`;
+  };
+
+  const handleConfirmAiAction = async (msgId) => {
+    const msg = chatMessages.find((m) => m.id === msgId);
+    if (!msg || !msg.confirm || msg.confirmState !== 'idle') return;
+    const { action, payload } = msg.confirm;
+    setConfirmState(msgId, 'running');
+
+    const { data, error } = await supabase.rpc('execute_melpud_action', {
+      p_action: action,
+      p_payload: payload,
+    });
+    if (error || !data?.ok) {
+      const why = error?.message || data?.error || 'Aksi ditolak oleh database.';
+      appendBot(
+        `Gagal menjalankan ${action}: ${why} Tidak ada data yang diubah. Pastikan migration 001 & 003 sudah dijalankan di SQL Editor.`
+      );
+      setConfirmState(msgId, 'idle');
+      return;
+    }
+    await refreshAfterAction(action);
+    setConfirmState(msgId, 'done');
+    appendBot(confirmedReply(action, payload, data.count ?? 0));
+  };
+
+  const handleCancelAiAction = (msgId) => {
+    setConfirmState(msgId, 'cancelled');
+    appendBot('Dibatalkan. Tidak ada data yang diubah.');
   };
 
   // ============================================================================
@@ -589,22 +751,23 @@ export default function App() {
     );
   };
 
+  // Bayar Semua: outletId tunggal, atau 'ALL' untuk seluruh outlet.
+  // Hanya baris RECONCILED + UNPAID yang disentuh; batch PAID tidak diubah.
   const handleSettleAllOutlet = (outletId) => {
+    const match = (b) =>
+      b.status === 'RECONCILED' &&
+      b.payment_status === 'UNPAID' &&
+      (outletId === 'ALL' || b.outlet_id === outletId);
     setBatches((prev) =>
-      prev.map((b) =>
-        b.outlet_id === outletId && b.status === 'RECONCILED' && b.payment_status === 'UNPAID'
-          ? { ...b, payment_status: 'PAID', paid_at: todayStr() }
-          : b
-      )
+      prev.map((b) => (match(b) ? { ...b, payment_status: 'PAID', paid_at: todayStr() } : b))
     );
-    run(
-      supabase
-        .from('consignment_batches')
-        .update({ payment_status: 'PAID', paid_at: todayStr() })
-        .eq('outlet_id', outletId)
-        .eq('status', 'RECONCILED')
-        .eq('payment_status', 'UNPAID')
-    );
+    let q = supabase
+      .from('consignment_batches')
+      .update({ payment_status: 'PAID', paid_at: todayStr() })
+      .eq('status', 'RECONCILED')
+      .eq('payment_status', 'UNPAID');
+    if (outletId !== 'ALL') q = q.eq('outlet_id', outletId);
+    run(q);
   };
 
   const handleEditBatchSave = (e) => {
@@ -1055,6 +1218,16 @@ export default function App() {
                 <p className="text-xs text-[#D97706] font-semibold mt-1">
                   Total piutang seluruh outlet
                 </p>
+                {financials.unpaidReceivables > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleSettleAllOutlet('ALL')}
+                    className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#15803D] text-white hover:bg-green-800"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua Outlet (
+                    {formatIDR(financials.unpaidReceivables)})
+                  </button>
+                )}
               </div>
 
               {/* 2. Uang Masuk Lunas (Hijau Primer) */}
@@ -1122,9 +1295,13 @@ export default function App() {
                 {outlets.map((outlet) => {
                   const obatches = enrichedBatches.filter((b) => b.outlet_id === outlet.id);
                   const activeBatch = obatches.find((b) => b.status === 'ACTIVE');
-                  const unpaidTotal = obatches
-                    .filter((b) => b.status === 'RECONCILED' && b.payment_status === 'UNPAID')
-                    .reduce((sum, b) => sum + b.total_bill, 0);
+                  // Akumulasi piutang berjalan: seluruh batch RECONCILED + UNPAID
+                  // milik outlet ini, termasuk yang menumpuk dari hari-hari sebelumnya.
+                  const unpaidBatches = obatches.filter(
+                    (b) => b.status === 'RECONCILED' && b.payment_status === 'UNPAID'
+                  );
+                  const unpaidTotal = unpaidBatches.reduce((sum, b) => sum + b.total_bill, 0);
+                  const unpaidOlder = unpaidBatches.filter((b) => b.date < todayStr()).length;
 
                   return (
                     <div
@@ -1157,7 +1334,7 @@ export default function App() {
                           </div>
                           <div className="text-right">
                             <span className="text-[11px] text-[#786B5E] block">
-                              Belum Dibayar (UNPAID):
+                              Piutang Menumpuk (UNPAID):
                             </span>
                             <span
                               className={`text-base font-extrabold ${
@@ -1165,6 +1342,13 @@ export default function App() {
                               }`}
                             >
                               {unpaidTotal > 0 ? formatIDR(unpaidTotal) : 'Rp 0 (Lunas)'}
+                            </span>
+                            <span className="text-[11px] text-[#786B5E] block mt-0.5">
+                              {unpaidTotal > 0
+                                ? `${unpaidBatches.length} batch RECONCILED + UNPAID${
+                                    unpaidOlder > 0 ? ` • ${unpaidOlder} dari hari sebelumnya` : ''
+                                  }`
+                                : 'Tidak ada tagihan menumpuk'}
                             </span>
                           </div>
                         </div>
@@ -1189,14 +1373,15 @@ export default function App() {
                               </button>
                             )}
 
-                            {/* Hijau Primer: Lunasi Semua */}
+                            {/* Hijau Primer: Bayar Semua (melunasi RECONCILED + UNPAID outlet ini) */}
                             {unpaidTotal > 0 && (
                               <button
                                 type="button"
                                 onClick={() => handleSettleAllOutlet(outlet.id)}
                                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#15803D] text-white hover:bg-green-800"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Lunasi Semua
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua (
+                                {formatIDR(unpaidTotal)})
                               </button>
                             )}
                           </div>
@@ -1603,40 +1788,69 @@ export default function App() {
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {outlets.map((o) => (
-                  <div
-                    key={o.id}
-                    className="p-4 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] flex items-center justify-between"
-                  >
-                    <div>
-                      <h4 className="font-extrabold text-sm text-[#141414]">{o.name}</h4>
-                      <p className="text-xs text-[#786B5E] mt-0.5">Kontak: {o.contact}</p>
+                {outlets.map((o) => {
+                  const ob = enrichedBatches.filter((b) => b.outlet_id === o.id);
+                  const unpaidBatches = ob.filter(
+                    (b) => b.status === 'RECONCILED' && b.payment_status === 'UNPAID'
+                  );
+                  const unpaidTotal = unpaidBatches.reduce((s, b) => s + b.total_bill, 0);
+                  const unpaidOlder = unpaidBatches.filter((b) => b.date < todayStr()).length;
+                  return (
+                    <div
+                      key={o.id}
+                      className="p-4 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <h4 className="font-extrabold text-sm text-[#141414]">{o.name}</h4>
+                        <p className="text-xs text-[#786B5E] mt-0.5">Kontak: {o.contact}</p>
+                        <p
+                          className={`text-xs font-extrabold mt-1 ${
+                            unpaidTotal > 0 ? 'text-[#D97706]' : 'text-[#15803D]'
+                          }`}
+                        >
+                          Piutang:{' '}
+                          {unpaidTotal > 0
+                            ? `${formatIDR(unpaidTotal)} (${unpaidBatches.length} batch${
+                                unpaidOlder > 0 ? `, ${unpaidOlder} dari hari sebelumnya` : ''
+                              })`
+                            : 'Rp 0 (Lunas)'}
+                        </p>
+                        {unpaidTotal > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleSettleAllOutlet(o.id)}
+                            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-[#15803D] text-white hover:bg-green-800"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-[#15803D]">
+                          Aktif
+                        </span>
+                        <button
+                          onClick={() =>
+                            setOutletModal({ id: o.id, name: o.name, contact: o.contact })
+                          }
+                          className="p-2 rounded-lg bg-amber-50 text-[#D97706] border border-amber-200 hover:bg-amber-100"
+                          title="Edit Outlet"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() =>
+                            setDeleteDialog({ type: 'outlet', id: o.id, title: `Outlet ${o.name}` })
+                          }
+                          className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
+                          title="Hapus Outlet"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-[#15803D]">
-                        Aktif
-                      </span>
-                      <button
-                        onClick={() =>
-                          setOutletModal({ id: o.id, name: o.name, contact: o.contact })
-                        }
-                        className="p-2 rounded-lg bg-amber-50 text-[#D97706] border border-amber-200 hover:bg-amber-100"
-                        title="Edit Outlet"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setDeleteDialog({ type: 'outlet', id: o.id, title: `Outlet ${o.name}` })
-                        }
-                        className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
-                        title="Hapus Outlet"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           </div>
@@ -1663,6 +1877,58 @@ export default function App() {
                 >
                   <ShoppingBag className="w-4 h-4" /> + Catat Belanja Bahan
                 </button>
+              </div>
+            </div>
+
+            {/* Akumulasi Piutang per Outlet + Bayar Semua */}
+            <div className="bg-white border border-[#E6DFD5] rounded-2xl p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-[#D97706]">
+                    Piutang Menumpuk (RECONCILED + UNPAID)
+                  </span>
+                  <p className="text-xl font-extrabold text-[#141414]">
+                    {formatIDR(financials.unpaidReceivables)}
+                  </p>
+                </div>
+                {financials.unpaidReceivables > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleSettleAllOutlet('ALL')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[#15803D] text-white hover:bg-green-800"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua Outlet
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {outlets.map((o) => {
+                  const unpaidBatches = enrichedBatches.filter(
+                    (b) =>
+                      b.outlet_id === o.id &&
+                      b.status === 'RECONCILED' &&
+                      b.payment_status === 'UNPAID'
+                  );
+                  const total = unpaidBatches.reduce((s, b) => s + b.total_bill, 0);
+                  if (total === 0) return null;
+                  const older = unpaidBatches.filter((b) => b.date < todayStr()).length;
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => handleSettleAllOutlet(o.id)}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-[#D97706]/40 text-xs font-bold text-[#D97706] hover:bg-amber-100"
+                      title={`Bayar semua piutang ${o.name}`}
+                    >
+                      {o.name}
+                      <span className="text-[#141414]">{formatIDR(total)}</span>
+                      <span className="font-semibold">
+                        ({unpaidBatches.length} batch{older > 0 ? `, ${older} kemarin` : ''})
+                      </span>
+                      <span className="text-[#15803D]">→ Bayar Semua</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -2060,6 +2326,58 @@ export default function App() {
                     }`}
                   >
                     <p>{msg.text}</p>
+                    {/* Kartu konfirmasi aksi AI: detail parameter + Konfirmasi/Batal.
+                        Eksekusi ke Supabase HANYA terjadi saat tombol ditekan. */}
+                    {msg.confirm && (
+                      <div className="mt-2 border-t border-[#E6DFD5] pt-2 space-y-2">
+                        <dl className="space-y-1">
+                          {msg.confirm.summary.map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="flex items-start justify-between gap-3 text-[11px]"
+                            >
+                              <dt className="text-[#786B5E] font-semibold shrink-0">{label}</dt>
+                              <dd className="font-extrabold text-[#141414] text-right break-all">
+                                {value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                        {msg.confirmState === 'idle' && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleConfirmAiAction(msg.id)}
+                              className="flex-1 px-3 py-2 rounded-xl text-[11px] font-extrabold bg-[#15803D] text-white hover:bg-green-800"
+                            >
+                              Konfirmasi &amp; Jalankan
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCancelAiAction(msg.id)}
+                              className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white border border-[#E6DFD5] text-[#786B5E] hover:bg-[#FAF8F5]"
+                            >
+                              Batal
+                            </button>
+                          </div>
+                        )}
+                        {msg.confirmState === 'running' && (
+                          <p className="text-[11px] font-bold text-[#1D4ED8]">
+                            Menjalankan aksi ke Supabase…
+                          </p>
+                        )}
+                        {msg.confirmState === 'done' && (
+                          <p className="text-[11px] font-bold text-[#15803D]">
+                            Selesai dijalankan ✓
+                          </p>
+                        )}
+                        {msg.confirmState === 'cancelled' && (
+                          <p className="text-[11px] font-bold text-[#786B5E]">
+                            Dibatalkan — tidak ada data yang diubah.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <span
                       className={`block text-[10px] mt-1 text-right ${
                         msg.sender === 'user' ? 'text-amber-100/80' : 'text-[#786B5E]'
