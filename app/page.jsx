@@ -54,7 +54,11 @@ const formatIDR = (val) =>
     maximumFractionDigits: 0,
   }).format(val || 0);
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+// Tanggal lokal. toISOString() memakai UTC, sehingga sebelum 08:00 WITA masih tanggal kemarin.
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const nowTimeStr = () =>
   new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
