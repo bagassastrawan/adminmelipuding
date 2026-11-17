@@ -834,21 +834,27 @@ export default function App() {
 
   // Bayar Semua: outletId tunggal, atau 'ALL' untuk seluruh outlet.
   // Hanya baris RECONCILED + UNPAID yang disentuh; batch PAID tidak diubah.
-  const handleSettleAllOutlet = (outletId) => {
+  const handleSettleAllOutlet = async (outletId) => {
+    const today = todayStr();
     const match = (b) =>
       b.status === 'RECONCILED' &&
       b.payment_status === 'UNPAID' &&
       (outletId === 'ALL' || b.outlet_id === outletId);
     setBatches((prev) =>
-      prev.map((b) => (match(b) ? { ...b, payment_status: 'PAID', paid_at: todayStr() } : b))
+      prev.map((b) => (match(b) ? { ...b, payment_status: 'PAID', paid_at: today } : b))
     );
     let q = supabase
       .from('consignment_batches')
-      .update({ payment_status: 'PAID', paid_at: todayStr() })
+      .update({ payment_status: 'PAID', paid_at: today })
       .eq('status', 'RECONCILED')
       .eq('payment_status', 'UNPAID');
     if (outletId !== 'ALL') q = q.eq('outlet_id', outletId);
-    run(q);
+    const { error } = await q;
+    if (error) {
+      // Jangan biarkan UI menampilkan lunas padahal database menolak.
+      alert(`Gagal menyimpan pelunasan: ${error.message}`);
+      await refreshAfterAction('SETTLE_PAYMENT');
+    }
   };
 
   const handleEditBatchSave = (e) => {
