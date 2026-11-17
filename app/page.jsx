@@ -158,7 +158,7 @@ export default function App() {
     const channel = supabase
       .channel('melpud-live')
       .on('postgres_changes', { event: '*', schema: 'public' }, load)
-      .subscribe();
+      .subscribe((status) => console.log('Realtime:', status));
 
     // HP sering mematikan websocket saat tab di latar; sinkronkan lagi begitu dibuka.
     const onVisible = () => {
@@ -166,8 +166,15 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', onVisible);
 
+    // shortcut: selama tabel belum masuk publikasi supabase_realtime, poll 5 dtk.
+    // Hapus poll ini setelah `select * from pg_publication_tables` berisi 5 tabel.
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') load();
+    }, 5000);
+
     return () => {
       alive = false;
+      clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
