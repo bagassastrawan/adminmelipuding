@@ -721,7 +721,7 @@ export default function App() {
     if (error || !data?.ok) {
       const why = error?.message || data?.error || 'Aksi ditolak oleh database.';
       appendBot(
-        `Gagal menjalankan ${action}: ${why} Tidak ada data yang diubah. Pastikan migration 001 & 003 sudah dijalankan di SQL Editor.`
+        `Gagal menjalankan ${action}: ${why} Tidak ada data yang diubah. Pastikan migration 001, 002 & 003 sudah dijalankan di SQL Editor.`
       );
       setConfirmState(msgId, 'idle');
       return;
