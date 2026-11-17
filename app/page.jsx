@@ -261,19 +261,26 @@ export default function App() {
   // (CREATE_DROP, RECONCILE_BATCH, SETTLE_PAYMENT, RECORD_EXPENSE).
   // Tidak ada satu pun tulis data di sini: database baru disentuh setelah
   // admin menekan "Konfirmasi & Jalankan" pada kartu konfirmasi di chat.
-  const parseAiCommand = (rawText) => {
+  // cmd = hasil terjemahan Gemini ({intent, outletId, ...}). Bila null/gagal,
+  // seluruh fungsi jatuh ke pembacaan kata kunci seperti sebelumnya.
+  const parseAiCommand = (rawText, cmd = null) => {
     const text = rawText.toLowerCase().trim();
+    const aiDate = cmd?.date || null;
 
-    const matchedOutlet = outlets.find((o) => {
-      const cleanName = o.name.toLowerCase().replace(/\./g, '').trim();
-      const shortName = cleanName.replace(/^p\s+/, '');
-      return text.includes(cleanName) || text.includes(shortName);
-    });
+    const matchedOutlet = cmd?.outletId
+      ? outlets.find((o) => o.id === cmd.outletId)
+      : outlets.find((o) => {
+          const cleanName = o.name.toLowerCase().replace(/\./g, '').trim();
+          const shortName = cleanName.replace(/^p\s+/, '');
+          return text.includes(cleanName) || text.includes(shortName);
+        });
 
     const matchedProduct =
+      (cmd?.productId && products.find((p) => p.id === cmd.productId)) ||
       products.find((p) =>
         text.includes(p.name.toLowerCase().replace('pudding ', '').trim())
-      ) || products[0];
+      ) ||
+      products[0];
 
     const parseNominal = (str) => {
       const rbMatch = str.match(/(\d+(?:[.,]\d+)?)\s*(rb|ribu|k)\b/i);
@@ -317,14 +324,24 @@ export default function App() {
       };
     };
 
+    if (cmd?.intent === 'UNKNOWN') {
+      return refuse(
+        null,
+        cmd.reason || 'Perintahnya belum saya kenali.',
+        'Coba ulangi dengan kata kunci yang lebih jelas, misal: "titip 10 cup ke P. BUNGIN", "sisa 2 cup P. BUNGIN", atau "belanja bahan 120rb".'
+      );
+    }
+
     // 1. EXPENSE (Uang Keluar Belanja Bahan) -> kartu konfirmasi
     if (
-      text.includes('belanja') ||
-      text.includes('beli') ||
-      text.includes('bensin') ||
-      (customLearned && customLearned.mapped_intent === 'RECORD_EXPENSE')
+      cmd
+        ? cmd.intent === 'RECORD_EXPENSE'
+        : text.includes('belanja') ||
+          text.includes('beli') ||
+          text.includes('bensin') ||
+          (customLearned && customLearned.mapped_intent === 'RECORD_EXPENSE')
     ) {
-      const amount = parseNominal(text);
+      const amount = cmd?.amount ?? parseNominal(text);
       if (!amount) {
         return refuse(
           'RECORD_EXPENSE',
@@ -347,8 +364,9 @@ export default function App() {
       ) {
         category = 'Operasional Lainnya';
       }
+      if (cmd?.category && EXPENSE_COLORS[cmd.category]) category = cmd.category;
 
-      const expenseDate = parseCmdDate(text) || todayStr();
+      const expenseDate = aiDate || parseCmdDate(text) || todayStr();
 
       return {
         type: 'confirm',
@@ -368,7 +386,9 @@ export default function App() {
     // 2. RECONCILE / SISA CUP -> kartu konfirmasi.
     //    Rekonsiliasi TIDAK PERNAH menyetel pembayaran ke PAID kecuali
     //    perintah eksplisit menyebut "lunas/sudah dibayar".
-    if (text.includes('sisa') || text.includes('retur')) {
+    if (
+      cmd ? cmd.intent === 'RECONCILE_BATCH' : text.includes('sisa') || text.includes('retur')
+    ) {
       if (!matchedOutlet) {
         return refuse(
           'RECONCILE_BATCH',
@@ -378,23 +398,24 @@ export default function App() {
       }
       const sisaMatch =
         text.match(/(?:sisa|retur)\s*(\d+)/i) || text.match(/(\d+)\s*cup/i);
-      if (!sisaMatch) {
+      const qtyReturned = cmd?.qtyReturned ?? (sisaMatch ? parseInt(sisaMatch[1], 10) : null);
+      if (qtyReturned == null) {
         return refuse(
           'RECONCILE_BATCH',
           'Jumlah sisa/returnya tidak disebutkan.',
           'Sebutkan jumlahnya, misal: "sisa 2 cup P. BUNGIN".'
         );
       }
-      const qtyReturned = parseInt(sisaMatch[1], 10);
-      const isPaid =
-        (text.includes('sudah dibayar') ||
-          text.includes('udah bayar') ||
-          text.includes('lunas')) &&
-        !text.includes('belum') &&
-        !text.includes('belom');
+      const isPaid = cmd
+        ? !!cmd.paid
+        : (text.includes('sudah dibayar') ||
+            text.includes('udah bayar') ||
+            text.includes('lunas')) &&
+          !text.includes('belum') &&
+          !text.includes('belom');
 
       // Pilih batch sesuai tanggal yang diminta; tanpa tanggal tetap ACTIVE pertama.
-      const wantedDate = parseCmdDate(text);
+      const wantedDate = aiDate || parseCmdDate(text);
       const targetBatch = batches.find(
         (b) =>
           b.outlet_id === matchedOutlet.id &&
@@ -443,20 +464,20 @@ export default function App() {
     // 3. PELUNASAN (SETTLE PAYMENT) -> kartu konfirmasi.
     //    Hanya baris RECONCILED + UNPAID milik outlet yang disebut
     //    (atau 'ALL' bila eksplisit "bayar semua outlet") yang disentuh.
-    const wantsSettle =
-      (text.includes('lunas') ||
-        text.includes('sudah dibayar') ||
-        text.includes('udah bayar') ||
-        text.includes('bayar semua') ||
-        text.includes('pelunasan')) &&
-      !text.includes('belum') &&
-      !text.includes('belom');
+    const wantsSettle = cmd
+      ? cmd.intent === 'SETTLE_PAYMENT'
+      : (text.includes('lunas') ||
+          text.includes('sudah dibayar') ||
+          text.includes('udah bayar') ||
+          text.includes('bayar semua') ||
+          text.includes('pelunasan')) &&
+        !text.includes('belum') &&
+        !text.includes('belom');
     if (wantsSettle) {
-      const scope = matchedOutlet
-        ? matchedOutlet.id
-        : /semua outlet|seluruh outlet/.test(text)
-        ? 'ALL'
-        : null;
+      let scope = null;
+      if (cmd) scope = cmd.settleAll ? 'ALL' : matchedOutlet?.id ?? null;
+      else if (matchedOutlet) scope = matchedOutlet.id;
+      else if (/semua outlet|seluruh outlet/.test(text)) scope = 'ALL';
       if (!scope) {
         return refuse(
           'SETTLE_PAYMENT',
@@ -498,11 +519,13 @@ export default function App() {
 
     // 4. CREATE DROP (TITIP PUDDING) -> kartu konfirmasi
     if (
-      text.includes('taruh') ||
-      text.includes('titip') ||
-      text.includes('naruh') ||
-      text.includes('masukkan') ||
-      (customLearned && customLearned.mapped_intent === 'CREATE_DROP')
+      cmd
+        ? cmd.intent === 'CREATE_DROP'
+        : text.includes('taruh') ||
+          text.includes('titip') ||
+          text.includes('naruh') ||
+          text.includes('masukkan') ||
+          (customLearned && customLearned.mapped_intent === 'CREATE_DROP')
     ) {
       if (!matchedOutlet) {
         return refuse(
@@ -512,15 +535,15 @@ export default function App() {
         );
       }
       const qtyMatch = text.match(/\b(\d{1,4})\b/);
-      if (!qtyMatch) {
+      const qty = cmd?.qty ?? (qtyMatch ? parseInt(qtyMatch[1], 10) : null);
+      if (!qty) {
         return refuse(
           'CREATE_DROP',
           'Jumlah cup yang dititip tidak disebutkan.',
           'Sebutkan jumlahnya, misal: "titip 10 cup ke P. BUNGIN".'
         );
       }
-      const qty = parseInt(qtyMatch[1], 10);
-      const dropDate = parseCmdDate(text) || todayStr();
+      const dropDate = aiDate || parseCmdDate(text) || todayStr();
 
       return {
         type: 'confirm',
@@ -552,7 +575,29 @@ export default function App() {
     );
   };
 
-  const handleSendChat = (e) => {
+  // Minta Gemini (server) menerjemahkan perintah. null = pakai parser kata kunci.
+  const askGemini = async (text) => {
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          today: todayStr(),
+          outlets: outlets.map((o) => ({ id: o.id, name: o.name })),
+          products: products.map((p) => ({ id: p.id, name: p.name })),
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return null;
+      const json = await r.json();
+      return json?.ok ? json.command : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleSendChat = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
     const text = chatInput.trim();
@@ -565,33 +610,31 @@ export default function App() {
     setChatMessages((prev) => [...prev, userMsg]);
     setChatInput('');
 
-    setTimeout(() => {
-      const res = parseAiCommand(text);
-      if (res.type === 'confirm') {
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `b-${Date.now() + 1}`,
-            sender: 'bot',
-            text: res.intro,
-            time: nowTimeStr(),
-            confirm: { action: res.action, payload: res.payload, summary: res.summary },
-            confirmState: 'idle',
-          },
-        ]);
-      } else {
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `b-${Date.now() + 1}`,
-            sender: 'bot',
-            text: res.reply,
-            isLearning: res.type === 'pending',
-            time: nowTimeStr(),
-          },
-        ]);
-      }
-    }, 250);
+    const res = parseAiCommand(text, await askGemini(text));
+    if (res.type === 'confirm') {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `b-${Date.now() + 1}`,
+          sender: 'bot',
+          text: res.intro,
+          time: nowTimeStr(),
+          confirm: { action: res.action, payload: res.payload, summary: res.summary },
+          confirmState: 'idle',
+        },
+      ]);
+    } else {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `b-${Date.now() + 1}`,
+          sender: 'bot',
+          text: res.reply,
+          isLearning: res.type === 'pending',
+          time: nowTimeStr(),
+        },
+      ]);
+    }
   };
 
   // ============================================================================
