@@ -60,6 +60,10 @@ begin
     with target as (
       select id from public.consignment_batches
       where outlet_id = v_outlet and status = 'ACTIVE'
+        -- batchId dari kartu konfirmasi menang supaya batch yang ditampilkan
+        -- = batch yang diubah; tanpa batchId, perilaku lama (tertua dulu).
+        and (nullif(p_payload ->> 'batchId', '') is null
+             or id = nullif(p_payload ->> 'batchId', ''))
       order by date asc, created_at asc
       limit 1
     ), upd as (

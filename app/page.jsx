@@ -62,6 +62,19 @@ const todayStr = () => {
 const nowTimeStr = () =>
   new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
+// Tanggal eksplisit dari perintah chat ("tanggal 16" / "tgl 16"), di bulan berjalan.
+const parseCmdDate = (str) => {
+  const m = str.match(/\b(?:tanggal|tgl)\.?\s*(\d{1,2})\b/);
+  if (!m) return null;
+  const now = new Date();
+  const d = new Date();
+  d.setDate(+m[1]);
+  if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`;
+};
+
 const EXPENSE_COLORS = {
   'Bahan Baku Utama': '#5C3A21', // Coklat Pudding
   Kemasan: '#1D4ED8', // Biru Primer
@@ -335,16 +348,18 @@ export default function App() {
         category = 'Operasional Lainnya';
       }
 
+      const expenseDate = parseCmdDate(text) || todayStr();
+
       return {
         type: 'confirm',
         action: 'RECORD_EXPENSE',
-        payload: { date: todayStr(), category, description: rawText, amount },
+        payload: { date: expenseDate, category, description: rawText, amount },
         intro: 'Saya siap catat uang keluar. Periksa detailnya lalu tekan tombol di bawah:',
         summary: [
           ['Kategori', category],
           ['Uraian', rawText],
           ['Nominal', formatIDR(amount)],
-          ['Tanggal', todayStr()],
+          ['Tanggal', expenseDate],
           ['Aksi', 'RECORD_EXPENSE'],
         ],
       };
@@ -378,14 +393,21 @@ export default function App() {
         !text.includes('belum') &&
         !text.includes('belom');
 
+      // Pilih batch sesuai tanggal yang diminta; tanpa tanggal tetap ACTIVE pertama.
+      const wantedDate = parseCmdDate(text);
       const targetBatch = batches.find(
-        (b) => b.outlet_id === matchedOutlet.id && b.status === 'ACTIVE'
+        (b) =>
+          b.outlet_id === matchedOutlet.id &&
+          b.status === 'ACTIVE' &&
+          (!wantedDate || b.date === wantedDate)
       );
 
       if (!targetBatch) {
         return {
           type: 'reply',
-          reply: `Saat ini tidak ada stok berstatus ACTIVE di ${matchedOutlet.name} untuk dihitung sisanya. Tidak ada data yang diubah.`,
+          reply: `Saat ini tidak ada stok berstatus ACTIVE di ${matchedOutlet.name}${
+            wantedDate ? ` pada tanggal ${wantedDate}` : ''
+          } untuk dihitung sisanya. Tidak ada data yang diubah.`,
         };
       }
 
@@ -397,6 +419,7 @@ export default function App() {
         type: 'confirm',
         action: 'RECONCILE_BATCH',
         payload: {
+          batchId: targetBatch.id,
           outletId: matchedOutlet.id,
           qtyReturned: safeRet,
           paymentStatus: isPaid ? 'PAID' : 'UNPAID',
@@ -497,12 +520,13 @@ export default function App() {
         );
       }
       const qty = parseInt(qtyMatch[1], 10);
+      const dropDate = parseCmdDate(text) || todayStr();
 
       return {
         type: 'confirm',
         action: 'CREATE_DROP',
         payload: {
-          date: todayStr(),
+          date: dropDate,
           outletId: matchedOutlet.id,
           productId: matchedProduct.id,
           qty,
@@ -510,7 +534,7 @@ export default function App() {
         intro: 'Saya siap mencatat titipan baru. Periksa detailnya lalu tekan tombol di bawah:',
         summary: [
           ['Outlet', matchedOutlet.name],
-          ['Tanggal', todayStr()],
+          ['Tanggal', dropDate],
           ['Varian', matchedProduct.name],
           ['Qty drop', `${qty} cup`],
           ['Harga/cup', formatIDR(matchedProduct.price)],
