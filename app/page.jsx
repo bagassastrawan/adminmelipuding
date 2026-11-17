@@ -160,8 +160,15 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public' }, load)
       .subscribe();
 
+    // HP sering mematikan websocket saat tab di latar; sinkronkan lagi begitu dibuka.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       alive = false;
+      document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
   }, []);
