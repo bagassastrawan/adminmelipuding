@@ -43,6 +43,7 @@ export async function POST(req: Request) {
       model: google('gemini-2.5-flash'),
       schema: commandSchema,
       temperature: 0,
+      providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
       system: `Kamu penerjemah perintah admin warung puding konsinyasi (bahasa Indonesia santai).
 Hari ini: ${String(body?.today ?? '')} (zona WITA). Isi field sesuai skema; field tak relevan = null.
 Aksi:

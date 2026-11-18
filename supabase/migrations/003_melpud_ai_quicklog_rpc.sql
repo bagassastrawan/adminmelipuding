@@ -1,18 +1,4 @@
--- Melpud v2.4 — RPC aksi kanonik untuk AI Quick-Log & tombol pelunasan.
--- Idempoten (create or replace). Jalankan setelah migration 001, di Supabase SQL Editor.
---
--- Kenapa ditulis ulang: RPC pada proyek live membaca kunci payload berbeda
--- (qty_drop & product_name tidak terisi sehingga CREATE_DROP selalu gagal
--- dengan 42702/23502) dan mengembalikan bentuk respons berbeda
--- ({ok, action, affected} tanpa rows). Fungsi di bawah adalah kontrak resmi
--- yang dipakai aplikasi: { ok, action, count, rows }.
---
--- Aturan yang dijaga:
---   * RECONCILE_BATCH / BATCH_RECONCILE_MULTI tidak pernah mengubah
---     payment_status menjadi PAID kecuali diminta eksplisit lewat payload.
---   * SETTLE_PAYMENT hanya menyentuh baris RECONCILED + UNPAID milik outlet
---     yang disebut (atau 'ALL'), sehingga batch PAID lain tidak tersentuh.
---   * current_date dihitung dalam WITA supaya tanggal default tidak meleset.
+
 
 create or replace function public.execute_melpud_action(p_action text, p_payload jsonb)
 returns jsonb
@@ -20,7 +6,7 @@ language plpgsql
 -- set search_path & timezone harus dua klausa SET terpisah: search_path adalah
 -- GUC multi-nilai, jadi "set a = x, b = y" akan terbaca sebagai daftar search_path.
 set search_path to public
-set timezone to 'Asia/Makassar'
+set timezone to 'Asia/Bali'
 as $$
 declare
   v_rows jsonb := '[]'::jsonb;
@@ -63,7 +49,7 @@ begin
         -- batchId dari kartu konfirmasi menang supaya batch yang ditampilkan
         -- = batch yang diubah; tanpa batchId, perilaku lama (tertua dulu).
         and (nullif(p_payload ->> 'batchId', '') is null
-             or id = nullif(p_payload ->> 'batchId', ''))
+             or id::text = nullif(p_payload ->> 'batchId', ''))
       order by date asc, created_at asc
       limit 1
     ), upd as (
@@ -85,7 +71,7 @@ begin
       from public.consignment_batches b
       where b.status = 'ACTIVE'
         and (
-          b.id = v_it ->> 'batchId'
+          b.id::text = v_it ->> 'batchId'
           or ((v_it ->> 'batchId') is null and b.outlet_id = v_it ->> 'outletId')
         )
       order by b.date asc, b.created_at asc
@@ -96,10 +82,10 @@ begin
         set qty_returned = least(b.qty_drop, greatest(0, coalesce((v_it ->> 'qtyReturned')::int, 0))),
             status = 'RECONCILED',
             payment_status = coalesce(v_it ->> 'paymentStatus', 'UNPAID')
-        where b.id = v_id;
+        where b.id::text = v_id;
 
         v_rows := v_rows || jsonb_build_array(
-          (select to_jsonb(x) from public.consignment_batches x where x.id = v_id)
+          (select to_jsonb(x) from public.consignment_batches x where x.id::text = v_id)
         );
       end if;
     end loop;
