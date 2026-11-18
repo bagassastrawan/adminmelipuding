@@ -38,6 +38,7 @@ import {
   PieChart,
   Pie,
   Cell,
+  ReferenceLine,
 } from 'recharts';
 import { supabase, checkSupabase } from '@/lib/supabase';
 
@@ -76,9 +77,9 @@ const parseCmdDate = (str) => {
 };
 
 const EXPENSE_COLORS = {
-  'Bahan Baku Utama': '#5C3A21', // Coklat Pudding
-  Kemasan: '#1D4ED8', // Biru Primer
-  'Operasional Lainnya': '#D97706', // Kuning/Amber Primer
+  'Bahan Baku Utama': '#5C3A21',
+  Kemasan: '#9C7A5C',
+  'Operasional Lainnya': '#CDB9A5',
 };
 
 export default function App() {
@@ -125,12 +126,17 @@ export default function App() {
   // Muat semua data dari Supabase + langganan realtime (semua tabel public).
   useEffect(() => {
     let alive = true;
+    let healthy = false;
+    let timer;
 
     const load = async () => {
-      const check = await checkSupabase();
-      if (!alive) return;
-      setDbStatus({ state: check.ok ? 'ok' : 'error', message: check.message });
-      if (!check.ok) return;
+      if (!healthy) {
+        const check = await checkSupabase();
+        if (!alive) return;
+        setDbStatus({ state: check.ok ? 'ok' : 'error', message: check.message });
+        if (!check.ok) return;
+        healthy = true;
+      }
 
       const [o, p, b, e, ai] = await Promise.all([
         supabase.from('outlets').select('*').order('name'),
@@ -155,10 +161,17 @@ export default function App() {
     };
 
     load();
+
+    // Satu aksi tulis bisa memicu beberapa event realtime; tunda agar 1 reload.
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(load, 400);
+    };
+
     const channel = supabase
       .channel('melpud-live')
-      .on('postgres_changes', { event: '*', schema: 'public' }, load)
-      .subscribe((status) => console.log('Realtime:', status));
+      .on('postgres_changes', { event: '*', schema: 'public' }, schedule)
+      .subscribe();
 
     // HP sering mematikan websocket saat tab di latar; sinkronkan lagi begitu dibuka.
     const onVisible = () => {
@@ -166,15 +179,9 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', onVisible);
 
-    // shortcut: selama tabel belum masuk publikasi supabase_realtime, poll 5 dtk.
-    // Hapus poll ini setelah `select * from pg_publication_tables` berisi 5 tabel.
-    const poll = setInterval(() => {
-      if (document.visibilityState === 'visible') load();
-    }, 5000);
-
     return () => {
       alive = false;
-      clearInterval(poll);
+      clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
@@ -232,10 +239,14 @@ export default function App() {
         ...b,
         qty_sold,
         total_bill,
+        product_name:
+          b.product_name ||
+          products.find((p) => p.id === b.product_id)?.name ||
+          'Varian',
         outlet_name: outletObj ? outletObj.name : b.outlet_id,
       };
     });
-  }, [batches, outlets]);
+  }, [batches, outlets, products]);
 
   const financials = useMemo(() => {
     const unpaidReceivables = enrichedBatches
@@ -289,12 +300,36 @@ export default function App() {
           return text.includes(cleanName) || text.includes(shortName);
         });
 
+    
+    const normalizeProductName = (value) =>
+      String(value ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\bpudding\b/g, 'puding')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+    const normalizedInput = normalizeProductName(rawText);
+
+    // Cari nama produk yang benar-benar disebut pengguna.
+    // Nama terpanjang diprioritaskan agar varian tidak tertukar.
     const matchedProduct =
-      (cmd?.productId && products.find((p) => p.id === cmd.productId)) ||
-      products.find((p) =>
-        text.includes(p.name.toLowerCase().replace('pudding ', '').trim())
-      ) ||
+      products
+        .filter((p) => {
+          const productName = normalizeProductName(p.name);
+          return productName && normalizedInput.includes(productName);
+        })
+        .sort(
+          (a, b) =>
+            normalizeProductName(b.name).length -
+            normalizeProductName(a.name).length
+        )[0] ||
+      (cmd?.productId
+        ? products.find((p) => p.id === cmd.productId)
+        : null) ||
       products[0];
+
 
     const parseNominal = (str) => {
       const rbMatch = str.match(/(\d+(?:[.,]\d+)?)\s*(rb|ribu|k)\b/i);
@@ -557,6 +592,13 @@ export default function App() {
           'Sebutkan jumlahnya, misal: "titip 10 cup ke P. BUNGIN".'
         );
       }
+      if (!matchedProduct) {
+        return refuse(
+          'CREATE_DROP',
+          'Belum ada varian pudding di master.',
+          'Tambahkan varian dulu di tab Master outlet & varian.'
+        );
+      }
       const dropDate = aiDate || parseCmdDate(text) || todayStr();
 
       return {
@@ -566,7 +608,12 @@ export default function App() {
           date: dropDate,
           outletId: matchedOutlet.id,
           productId: matchedProduct.id,
+          productName: matchedProduct.name,
+          product_name: matchedProduct.name,
           qty,
+          qtyDrop: qty,
+          qty_drop: qty,
+          priceUnit: matchedProduct.price,
         },
         intro: 'Saya siap mencatat titipan baru. Periksa detailnya lalu tekan tombol di bawah:',
         summary: [
@@ -626,6 +673,26 @@ export default function App() {
 
     const res = parseAiCommand(text, await askGemini(text));
     if (res.type === 'confirm') {
+      if (!learnedAiLogs.some((l) => l.raw_text.toLowerCase() === text.toLowerCase())) {
+        const newLog = {
+          id: `ai-${Date.now()}`,
+          raw_text: text,
+          ai_reason: 'Perintah dikenali otomatis.',
+          status: 'LEARNED',
+          mapped_intent: res.action,
+          created_at: new Date().toLocaleString('id-ID'),
+        };
+        setAiLogs((prev) => [newLog, ...prev]);
+        run(
+          supabase.from('ai_logs').insert({
+            id: newLog.id,
+            raw_text: newLog.raw_text,
+            ai_reason: newLog.ai_reason,
+            status: newLog.status,
+            mapped_intent: newLog.mapped_intent,
+          })
+        );
+      }
       setChatMessages((prev) => [
         ...prev,
         {
@@ -728,21 +795,36 @@ export default function App() {
     const { action, payload } = msg.confirm;
     setConfirmState(msgId, 'running');
 
-    const { data, error } = await supabase.rpc('execute_melpud_action', {
-      p_action: action,
-      p_payload: payload,
-    });
-    if (error || !data?.ok) {
+    const { data, error } =
+      action === 'RECONCILE_BATCH'
+        ? await supabase
+            .from('consignment_batches')
+            .update({
+              qty_returned: payload.qtyReturned,
+              status: 'RECONCILED',
+              payment_status: payload.paymentStatus,
+            })
+            .eq('id', payload.batchId)
+            .select('id')
+        : await supabase.rpc('execute_melpud_action', {
+            p_action: action,
+            p_payload: payload,
+          });
+    if (error || data?.ok === false) {
       const why = error?.message || data?.error || 'Aksi ditolak oleh database.';
-      appendBot(
-        `Gagal menjalankan ${action}: ${why} Tidak ada data yang diubah. Pastikan migration 001, 002 & 003 sudah dijalankan di SQL Editor.`
-      );
+      appendBot(`Gagal menjalankan ${action}: ${why}`);
       setConfirmState(msgId, 'idle');
       return;
     }
     await refreshAfterAction(action);
     setConfirmState(msgId, 'done');
-    appendBot(confirmedReply(action, payload, data.count ?? 0));
+    appendBot(
+      confirmedReply(
+        action,
+        payload,
+        Array.isArray(data) ? data.length : data?.count ?? data?.affected ?? 0
+      )
+    );
   };
 
   const handleCancelAiAction = (msgId) => {
@@ -1048,10 +1130,14 @@ export default function App() {
   // CHARTS & COMBINED TRANSACTIONS LEDGER
   // ============================================================================
   const barChartData = [
-    { name: 'Uang Masuk (Lunas)', nominal: financials.realCashIn, fill: '#15803D' }, // Hijau Primer
-    { name: 'Piutang (Belum Bayar)', nominal: financials.unpaidReceivables, fill: '#D97706' }, // Kuning Primer
-    { name: 'Uang Keluar (Belanja)', nominal: financials.totalExpenses, fill: '#DC2626' }, // Merah Primer
-    { name: 'Keuntungan Bersih', nominal: Math.max(0, financials.netCash), fill: '#5C3A21' }, // Coklat Pudding
+    { name: 'Uang masuk', nominal: financials.realCashIn, fill: '#141414' },
+    { name: 'Piutang', nominal: financials.unpaidReceivables, fill: '#8A8A8A' },
+    { name: 'Belanja bahan', nominal: financials.totalExpenses, fill: '#8A8A8A' },
+    {
+      name: 'Kas bersih',
+      nominal: financials.netCash,
+      fill: financials.netCash < 0 ? '#C4242A' : '#5C3A21',
+    },
   ];
 
   const pieChartData = useMemo(() => {
@@ -1112,166 +1198,77 @@ export default function App() {
   }, [unifiedTransactions, txFilter, txOutletFilter]);
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] text-[#141414] flex flex-col md:flex-row font-sans">
+    <div className="min-h-screen bg-[#F4F3F0] text-[#141414] flex flex-col md:flex-row font-sans">
       {/* =====================================================================
           SIDEBAR NAVIGASI (COKLAT PUDDING, PUTIH, HITAM & WARNA PRIMER)
       ===================================================================== */}
-      <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-[#E6DFD5] p-5 flex flex-col justify-between shrink-0">
+      <aside className="w-full md:w-56 bg-[#F4F3F0] md:border-r border-b md:border-b-0 border-[#E6E5E2] px-4 md:px-3 py-4 md:py-5 flex flex-col shrink-0">
         <div>
-          {/* Brand Logo */}
-          <div className="flex items-center justify-between md:block mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#5C3A21] text-white flex items-center justify-center font-extrabold text-lg shadow-sm">
-                M
-              </div>
-              <div>
-                <h1 className="text-lg font-extrabold tracking-tight text-[#141414]">
-                  MELPUD ADMIN
-                </h1>
-                <p className="text-xs text-[#786B5E] font-medium">
-                  Consignment & Cash System
-                </p>
-              </div>
+          {/* Brand */}
+          <div className="flex items-center gap-2.5 px-2 mb-6">
+            <div className="w-8 h-8 rounded-md bg-[#5C3A21] text-white flex items-center justify-center text-sm font-medium">
+              M
+            </div>
+            <div>
+              <p className="text-sm font-medium leading-tight text-[#141414]">Melpud</p>
+              <p className="text-xs leading-tight text-[#6B6B6B]">Consignment &amp; cash</p>
             </div>
           </div>
 
-          {/* 5 Menu Halaman Utama */}
-          <nav className="flex md:flex-col gap-1.5 overflow-x-auto pb-1 md:pb-0">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-                activeTab === 'dashboard'
-                  ? 'bg-[#5C3A21] text-white shadow-sm'
-                  : 'text-[#4A3F35] hover:bg-[#F3EFEA]'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <LayoutDashboard className="w-4 h-4" />
-                Dashboard
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('reports')}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-                activeTab === 'reports'
-                  ? 'bg-[#5C3A21] text-white shadow-sm'
-                  : 'text-[#4A3F35] hover:bg-[#F3EFEA]'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <BarChart3 className="w-4 h-4" />
-                Laporan & Grafik
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('transactions')}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-                activeTab === 'transactions'
-                  ? 'bg-[#5C3A21] text-white shadow-sm'
-                  : 'text-[#4A3F35] hover:bg-[#F3EFEA]'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Receipt className="w-4 h-4" />
-                Riwayat Transaksi
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('outlets-variants')}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-                activeTab === 'outlets-variants'
-                  ? 'bg-[#5C3A21] text-white shadow-sm'
-                  : 'text-[#4A3F35] hover:bg-[#F3EFEA]'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Store className="w-4 h-4" />
-                Master Outlet & Varian
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('ai-validation')}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-                activeTab === 'ai-validation'
-                  ? 'bg-[#141414] text-white shadow-sm'
-                  : 'text-[#4A3F35] hover:bg-[#F3EFEA]'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4" />
-                Validasi AI
-              </span>
-              {pendingAiLogs.length > 0 && (
-                <span
-                  className={`ml-2 px-2 py-0.5 text-[11px] font-bold rounded-full ${
-                    activeTab === 'ai-validation'
-                      ? 'bg-[#D97706] text-white'
-                      : 'bg-amber-100 text-[#D97706]'
-                  }`}
-                >
-                  {pendingAiLogs.length}
-                </span>
-              )}
-            </button>
+          {/* Main navigation */}
+          <nav className="flex md:flex-col gap-0.5 overflow-x-auto pb-1 md:pb-0">
+            {[
+              { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+              { id: 'reports', label: 'Laporan & grafik', Icon: BarChart3 },
+              { id: 'transactions', label: 'Riwayat transaksi', Icon: Receipt },
+              { id: 'outlets-variants', label: 'Master outlet & varian', Icon: Store },
+              { id: 'ai-validation', label: 'Validasi AI', Icon: Sparkles },
+            ].map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`flex items-center gap-2.5 h-9 px-3 rounded-md text-sm transition-colors whitespace-nowrap ${
+                  activeTab === id
+                    ? 'bg-[#E9E8E5] text-[#141414] font-medium'
+                    : 'text-[#5F5F5F] hover:bg-[#EDECEA]'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{label}</span>
+                {id === 'ai-validation' && pendingAiLogs.length > 0 && (
+                  <span className="text-xs font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-full px-1.5">
+                    {pendingAiLogs.length}
+                  </span>
+                )}
+              </button>
+            ))}
           </nav>
-        </div>
-
-        {/* Indikator Warna Fungsional */}
-        <div className="hidden md:block pt-5 border-t border-[#E6DFD5] text-xs text-[#5A4E43] space-y-2">
-          <p className="font-extrabold text-[#141414] uppercase tracking-wider text-[11px]">
-            Kode Warna Aksi:
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#5C3A21] shrink-0" />
-            <span>Coklat: Klik Kartu = Titip Pudding</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#1D4ED8] shrink-0" />
-            <span>Biru: Cek Sisa / Retur Cup</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#15803D] shrink-0" />
-            <span>Hijau: Lunas (PAID) / Uang Masuk</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#D97706] shrink-0" />
-            <span>Kuning: Belum Bayar / Edit</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#DC2626] shrink-0" />
-            <span>Merah: Belanja Bahan / Hapus</span>
-          </div>
         </div>
       </aside>
 
       {/* =====================================================================
           MAIN CONTENT AREA
       ===================================================================== */}
-      <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6 pb-24">
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 w-full max-w-6xl space-y-6 pb-24">
         {/* Indikator koneksi Supabase (terlihat di semua tab) */}
-        <div
-          className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border px-3 py-2 text-xs font-bold ${
-            dbStatus.state === 'ok'
-              ? 'bg-[#15803D]/10 border-[#15803D]/30 text-[#15803D]'
-              : dbStatus.state === 'error'
-              ? 'bg-[#DC2626]/10 border-[#DC2626]/30 text-[#DC2626]'
-              : 'bg-[#FAF8F5] border-[#E6DFD5] text-[#786B5E]'
-          }`}
-        >
-          <span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#6B6B6B]">
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              dbStatus.state === 'ok'
+                ? 'bg-[#2E7D32]'
+                : dbStatus.state === 'error'
+                ? 'bg-[#C4242A]'
+                : 'bg-[#D4D3CF]'
+            }`}
+          />
+          <span className="font-medium text-[#141414]">
             {dbStatus.state === 'ok'
               ? 'Supabase terhubung'
               : dbStatus.state === 'error'
               ? 'Supabase gagal terhubung'
               : 'Memeriksa koneksi Supabase…'}
           </span>
-          {dbStatus.state !== 'checking' && (
-            <span className="font-medium opacity-80">— {dbStatus.message}</span>
-          )}
+          {dbStatus.state !== 'checking' && <span>— {dbStatus.message}</span>}
         </div>
 
         {/* ===================================================================
@@ -1281,104 +1278,110 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <>
             <div>
-              <h2 className="text-2xl font-extrabold tracking-tight text-[#141414]">
-                Dashboard Operasional Melpud
-              </h2>
-              <p className="text-sm text-[#786B5E]">
-                Klik langsung pada kartu outlet di bawah untuk menambahkan titipan pudding baru, atau cek sisa & ubah status pembayaran.
+              <h1 className="text-2xl font-semibold tracking-tight text-[#141414]">
+                Dashboard
+              </h1>
+              <p className="text-sm text-[#6B6B6B] mt-1">
+                {(() => {
+                  const unpaidOutlets = outlets.filter((o) =>
+                    enrichedBatches.some(
+                      (b) =>
+                        b.outlet_id === o.id &&
+                        b.status === 'RECONCILED' &&
+                        b.payment_status === 'UNPAID'
+                    )
+                  ).length;
+                  const activeBatches = enrichedBatches.filter(
+                    (b) => b.status === 'ACTIVE'
+                  ).length;
+                  return `${unpaidOutlets} outlet punya tagihan · ${activeBatches} titipan berjalan · kas bersih ${formatIDR(
+                    financials.netCash
+                  )}`;
+                })()}
               </p>
             </div>
 
-            {/* 4 KARTU METRIK UTAMA */}
-            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* 1. Belum Dibayar / Piutang (Kuning/Amber Primer) */}
-              <div className="bg-white p-5 rounded-2xl border-2 border-[#D97706]/30 shadow-sm">
-                <div className="flex items-center justify-between text-[#D97706] mb-2">
-                  <span className="text-xs font-extrabold uppercase tracking-wider">
-                    Belum Dibayar (UNPAID)
-                  </span>
-                  <Clock className="w-4 h-4" />
-                </div>
-                <p className="text-2xl font-extrabold text-[#141414]">
+            {/* Ringkasan kas: satu wadah, dibagi garis tipis */}
+            <section className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-[#E6E5E2] border border-[#E6E5E2] rounded-lg overflow-hidden">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Piutang</p>
+                <p className="text-2xl sm:text-3xl font-bold num mt-1.5 text-[#141414]">
                   {formatIDR(financials.unpaidReceivables)}
                 </p>
-                <p className="text-xs text-[#D97706] font-semibold mt-1">
-                  Total piutang seluruh outlet
+                <p className="text-xs text-[#6B6B6B] mt-1.5">
+                  {(() => {
+                    const unpaid = enrichedBatches.filter(
+                      (b) =>
+                        b.status === 'RECONCILED' && b.payment_status === 'UNPAID'
+                    );
+                    if (unpaid.length === 0) return 'Tidak ada tagihan terbuka';
+                    const outletCount = new Set(unpaid.map((b) => b.outlet_id)).size;
+                    return `${outletCount} outlet · ${unpaid.length} batch belum dibayar`;
+                  })()}
                 </p>
                 {financials.unpaidReceivables > 0 && (
                   <button
                     type="button"
                     onClick={() => handleSettleAllOutlet('ALL')}
-                    className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#15803D] text-white hover:bg-green-800"
+                    className="mt-3 h-8 px-3 rounded-md border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0] transition-colors"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua Outlet (
-                    {formatIDR(financials.unpaidReceivables)})
+                    Lunasi semua
                   </button>
                 )}
               </div>
 
-              {/* 2. Uang Masuk Lunas (Hijau Primer) */}
-              <div className="bg-white p-5 rounded-2xl border-2 border-[#15803D]/30 shadow-sm">
-                <div className="flex items-center justify-between text-[#15803D] mb-2">
-                  <span className="text-xs font-extrabold uppercase tracking-wider">
-                    Uang Masuk (PAID)
-                  </span>
-                  <TrendingUp className="w-4 h-4" />
-                </div>
-                <p className="text-2xl font-extrabold text-[#141414]">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Uang masuk</p>
+                <p className="text-2xl sm:text-3xl font-bold num mt-1.5 text-[#141414]">
                   {formatIDR(financials.realCashIn)}
                 </p>
-                <p className="text-xs text-[#15803D] font-semibold mt-1">
-                  Kas penjualan sudah dibayar
+                <p className="text-xs text-[#6B6B6B] mt-1.5">
+                  Penjualan yang sudah lunas
                 </p>
               </div>
 
-              {/* 3. Uang Keluar Belanja Bahan (Merah Primer) */}
-              <div className="bg-white p-5 rounded-2xl border-2 border-[#DC2626]/30 shadow-sm">
-                <div className="flex items-center justify-between text-[#DC2626] mb-2">
-                  <span className="text-xs font-extrabold uppercase tracking-wider">
-                    Uang Keluar (Belanja)
-                  </span>
-                  <ShoppingBag className="w-4 h-4" />
-                </div>
-                <p className="text-2xl font-extrabold text-[#141414]">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Belanja bahan</p>
+                <p className="text-2xl sm:text-3xl font-bold num mt-1.5 text-[#141414]">
                   {formatIDR(financials.totalExpenses)}
                 </p>
-                <p className="text-xs text-[#DC2626] font-semibold mt-1">
-                  Otomatis memotong kas penjualan
+                <p className="text-xs text-[#6B6B6B] mt-1.5">
+                  Dipotong dari kas penjualan
                 </p>
               </div>
 
-              {/* 4. Saldo Kas Bersih (Coklat Pudding) */}
-              <div className="bg-[#5C3A21] text-white p-5 rounded-2xl shadow-sm">
-                <div className="flex items-center justify-between text-amber-200 mb-2">
-                  <span className="text-xs font-extrabold uppercase tracking-wider">
-                    Saldo Kas Bersih
-                  </span>
-                  <Wallet className="w-4 h-4" />
-                </div>
-                <p className="text-2xl font-extrabold text-white">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Kas bersih</p>
+                <p
+                  className={`text-2xl sm:text-3xl font-bold num mt-1.5 ${
+                    financials.netCash < 0 ? 'text-[#C4242A]' : 'text-[#141414]'
+                  }`}
+                >
                   {formatIDR(financials.netCash)}
                 </p>
-                <p className="text-xs text-amber-100/90 font-medium mt-1">
-                  Proyeksi + Piutang: {formatIDR(financials.projectedProfit)}
+                <p className="text-xs text-[#6B6B6B] mt-1.5">
+                  Setelah belanja · proyeksi{' '}
+                  {formatIDR(financials.projectedProfit)}
                 </p>
               </div>
             </section>
 
-            {/* 5 KARTU OUTLET LANGSUNG DI DASHBOARD (KLIK KARTU = TAMBAH TITIP PUDDING) */}
+            {/* Outlet mitra */}
             <section className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <h3 className="text-base font-extrabold text-[#141414]">
-                  Daftar Outlet Mitra ({outlets.length} Outlet)
-                </h3>
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#5C3A21] bg-[#F3EFEA] px-3 py-1.5 rounded-xl">
+                <h2 className="text-lg font-semibold text-[#141414]">
+                  Outlet mitra{' '}
+                  <span className="text-sm font-normal text-[#6B6B6B]">
+                    {outlets.length}
+                  </span>
+                </h2>
+                <span className="inline-flex items-center gap-1.5 text-xs text-[#6B6B6B]">
                   <MousePointerClick className="w-3.5 h-3.5" />
-                  Klik kartu outlet mana saja untuk menambahkan Titip Pudding
+                  Klik kartu untuk menitipkan pudding
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="bg-white border border-[#E6E5E2] rounded-lg divide-y divide-[#F0EFEC]">
                 {outlets.map((outlet) => {
                   const obatches = enrichedBatches.filter((b) => b.outlet_id === outlet.id);
                   const activeBatch = obatches.find((b) => b.status === 'ACTIVE');
@@ -1401,52 +1404,45 @@ export default function App() {
                           date: todayStr(),
                         });
                       }}
-                      className="group bg-white border-2 border-[#E6DFD5] hover:border-[#5C3A21] rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4"
+                      className="px-5 py-4 hover:bg-[#FAFAF9] transition-colors cursor-pointer"
                     >
-                      <div>
+                      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,13rem)_1fr] lg:gap-8 lg:items-start">
+                        <div className="space-y-3">
                         {/* Outlet Header */}
-                        <div className="flex items-start justify-between gap-3 border-b border-[#F3EFEA] pb-3 mb-3">
+                        <div className="space-y-1">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="text-lg font-extrabold text-[#141414] group-hover:text-[#5C3A21] transition-colors">
-                                {outlet.name}
-                              </h4>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#F3EFEA] text-[#5C3A21] group-hover:bg-[#5C3A21] group-hover:text-white transition-colors">
-                                Klik Kartu + Titip
-                              </span>
-                            </div>
-                            <span className="text-xs text-[#786B5E]">
-                              Kontak: {outlet.contact}
-                            </span>
+                            <h3 className="text-base font-semibold text-[#141414]">
+                              {outlet.name}
+                            </h3>
+                            <p className="text-xs text-[#6B6B6B] mt-0.5">
+                              {outlet.contact}
+                            </p>
                           </div>
-                          <div className="text-right">
-                            <span className="text-[11px] text-[#786B5E] block">
-                              Piutang Menumpuk (UNPAID):
-                            </span>
-                            <span
-                              className={`text-base font-extrabold ${
-                                unpaidTotal > 0 ? 'text-[#D97706]' : 'text-[#15803D]'
+                          <div>
+                            <p className="text-xs text-[#6B6B6B]">Piutang</p>
+                            <p
+                              className={`text-lg font-semibold num mt-0.5 ${
+                                unpaidTotal > 0 ? 'text-[#141414]' : 'text-[#6B6B6B]'
                               }`}
                             >
-                              {unpaidTotal > 0 ? formatIDR(unpaidTotal) : 'Rp 0 (Lunas)'}
-                            </span>
-                            <span className="text-[11px] text-[#786B5E] block mt-0.5">
+                              {unpaidTotal > 0 ? formatIDR(unpaidTotal) : 'Rp 0'}
+                            </p>
+                            <p className="text-xs text-[#6B6B6B] mt-0.5">
                               {unpaidTotal > 0
-                                ? `${unpaidBatches.length} batch RECONCILED + UNPAID${
-                                    unpaidOlder > 0 ? ` • ${unpaidOlder} dari hari sebelumnya` : ''
+                                ? `${unpaidBatches.length} batch belum dibayar${
+                                    unpaidOlder > 0 ? ` · ${unpaidOlder} lewat hari` : ''
                                   }`
-                                : 'Tidak ada tagihan menumpuk'}
-                            </span>
+                                : 'Lunas'}
+                            </p>
                           </div>
                         </div>
 
-                        {/* Tombol Aksi Cepat (Cek Sisa & Lunasi Semua) - Tanpa tombol +Titip Pudding */}
+                        {/* Aksi cepat */}
                         {(activeBatch || unpaidTotal > 0) && (
                           <div
-                            className="flex flex-wrap gap-2 mb-4"
+                            className="flex flex-wrap gap-2"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {/* Biru Primer: Cek Sisa / Retur */}
                             {activeBatch && (
                               <button
                                 type="button"
@@ -1454,68 +1450,65 @@ export default function App() {
                                   setReconcileModal(activeBatch);
                                   setReconcileForm({ qtyReturned: 2, paidNow: false });
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#1D4ED8] text-white hover:bg-blue-800"
+                                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0] transition-colors"
                               >
-                                <RotateCcw className="w-3.5 h-3.5" /> Cek Sisa ({activeBatch.qty_drop} cup)
+                                <RotateCcw className="w-3.5 h-3.5" /> Cek sisa ({activeBatch.qty_drop} cup)
                               </button>
                             )}
 
-                            {/* Hijau Primer: Bayar Semua (melunasi RECONCILED + UNPAID outlet ini) */}
                             {unpaidTotal > 0 && (
                               <button
                                 type="button"
                                 onClick={() => handleSettleAllOutlet(outlet.id)}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#15803D] text-white hover:bg-green-800"
+                                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0] transition-colors"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua (
-                                {formatIDR(unpaidTotal)})
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Lunasi{' '}
+                                {formatIDR(unpaidTotal)}
                               </button>
                             )}
                           </div>
                         )}
 
-                        {/* Riwayat Tanggal di Outlet Ini */}
-                        <div
-                          className="space-y-2"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="text-xs font-bold text-[#786B5E] uppercase tracking-wider block">
-                            Riwayat Tanggal Penitipan ({obatches.length}):
-                          </span>
+                        </div>
+                        {/* Riwayat tanggal di outlet ini */}
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <p className="text-xs text-[#6B6B6B] mb-1">
+                            Riwayat penitipan{' '}
+                            <span className="text-[#141414] font-medium">
+                              {obatches.length}
+                            </span>
+                          </p>
                           {obatches.length === 0 ? (
-                            <p className="text-xs text-[#786B5E] italic py-2">
+                            <p className="text-xs text-[#6B6B6B] italic py-2">
                               Belum ada riwayat penitipan. Klik kartu ini untuk menitipkan pudding.
                             </p>
                           ) : (
-                            <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                            <div className="max-h-56 overflow-y-auto">
                               {obatches.map((b) => (
                                 <div
                                   key={b.id}
-                                  className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E6DFD5] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2.5 border-t border-[#F0EFEC] text-xs"
                                 >
                                   <div>
-                                    <div className="font-extrabold text-[#141414]">
-                                      {b.date} • {b.product_name}
-                                    </div>
-                                    <div className="text-[#5A4E43] mt-0.5">
+                                    <p className="font-medium text-[#141414]">
+                                      {b.date} · {b.product_name}
+                                    </p>
+                                    <p className="text-[#6B6B6B] mt-0.5">
                                       {b.status === 'ACTIVE' ? (
-                                        <span className="text-[#1D4ED8] font-bold">
-                                          Titip {b.qty_drop} cup (Sedang Dititip)
-                                        </span>
+                                        <>Titip {b.qty_drop} cup · sedang dititip</>
                                       ) : (
-                                        <span>
-                                          Titip {b.qty_drop} •{' '}
-                                          <strong className="text-[#1D4ED8]">
-                                            Sisa {b.qty_returned}
-                                          </strong>{' '}
-                                          • Laku {b.qty_sold} ={' '}
-                                          <strong>{formatIDR(b.total_bill)}</strong>
-                                        </span>
+                                        <>
+                                          Titip {b.qty_drop} · sisa {b.qty_returned} · laku{' '}
+                                          {b.qty_sold} ={' '}
+                                          <span className="text-[#141414] font-medium num">
+                                            {formatIDR(b.total_bill)}
+                                          </span>
+                                        </>
                                       )}
-                                    </div>
+                                    </p>
                                   </div>
 
-                                  <div className="flex items-center gap-1.5 shrink-0">
+                                  <div className="flex items-center gap-1 shrink-0">
                                     {b.status === 'ACTIVE' ? (
                                       <button
                                         type="button"
@@ -1523,23 +1516,21 @@ export default function App() {
                                           setReconcileModal(b);
                                           setReconcileForm({ qtyReturned: 2, paidNow: false });
                                         }}
-                                        className="px-2.5 py-1 rounded-lg bg-[#1D4ED8] text-white font-bold"
+                                        className="h-7 px-2.5 rounded-md border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0] transition-colors"
                                       >
-                                        Input Sisa
+                                        Input sisa
                                       </button>
                                     ) : (
                                       <button
                                         type="button"
                                         onClick={() => handleTogglePaymentStatus(b)}
-                                        className={`px-2.5 py-1 rounded-lg font-bold ${
+                                        className={`h-6 px-2 rounded-full text-xs font-medium border ${
                                           b.payment_status === 'PAID'
-                                            ? 'bg-emerald-100 text-[#15803D]'
-                                            : 'bg-amber-100 text-[#D97706]'
+                                            ? 'bg-[#E7F3E9] text-[#1E5B24] border-[#CDE6D2]'
+                                            : 'bg-[#FFFBEB] text-[#92400E] border-[#FDE68A]'
                                         }`}
                                       >
-                                        {b.payment_status === 'PAID'
-                                          ? 'PAID (Lunas)'
-                                          : 'UNPAID (Klik Lunasi)'}
+                                        {b.payment_status === 'PAID' ? 'Lunas' : 'Belum dibayar'}
                                       </button>
                                     )}
 
@@ -1552,8 +1543,9 @@ export default function App() {
                                           qty_returned: b.qty_returned ?? 0,
                                         });
                                       }}
-                                      className="p-1.5 rounded-lg bg-amber-50 text-[#D97706] border border-amber-200"
-                                      title="Edit"
+                                      className="p-1.5 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#141414] transition-colors"
+                                      title="Edit titipan"
+                                      aria-label={`Edit titipan ${outlet.name} ${b.date}`}
                                     >
                                       <Pencil className="w-3.5 h-3.5" />
                                     </button>
@@ -1566,8 +1558,9 @@ export default function App() {
                                           title: `Titipan ${outlet.name} (${b.date})`,
                                         })
                                       }
-                                      className="p-1.5 rounded-lg bg-red-50 text-[#DC2626] border border-red-200"
-                                      title="Hapus"
+                                      className="p-1.5 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#C4242A] transition-colors"
+                                      title="Hapus titipan"
+                                      aria-label={`Hapus titipan ${outlet.name} ${b.date}`}
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -1592,69 +1585,70 @@ export default function App() {
         {activeTab === 'reports' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-extrabold tracking-tight text-[#141414]">
-                Laporan Keuangan & Diagram Analitik
-              </h2>
-              <p className="text-sm text-[#786B5E]">
-                Visualisasi lengkap pemasukan penjualan, piutang belum dibayar, pengeluaran belanja bahan, dan performa per outlet.
+              <h1 className="text-2xl font-semibold tracking-tight text-[#141414]">
+                Laporan
+              </h1>
+              <p className="text-sm text-[#6B6B6B] mt-1">
+                Pemasukan, piutang, belanja bahan, dan performa tiap outlet.
               </p>
             </div>
 
-            {/* Ringkasan Laba Rugi */}
-            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-[#E6DFD5] shadow-sm">
-                <span className="text-xs font-extrabold uppercase text-[#15803D]">
-                  Total Uang Masuk (PAID)
-                </span>
-                <p className="text-2xl font-extrabold text-[#141414] mt-1">
+            {/* Ringkasan laba rugi: satu wadah, dibagi garis tipis */}
+            <section className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-[#E6E5E2] border border-[#E6E5E2] rounded-lg overflow-hidden">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Uang masuk</p>
+                <p className="text-2xl sm:text-3xl font-bold num mt-1.5 text-[#141414]">
                   {formatIDR(financials.realCashIn)}
                 </p>
+                <p className="text-xs text-[#6B6B6B] mt-1.5">Sudah lunas</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-[#E6DFD5] shadow-sm">
-                <span className="text-xs font-extrabold uppercase text-[#D97706]">
-                  Total Belum Dibayar (UNPAID)
-                </span>
-                <p className="text-2xl font-extrabold text-[#141414] mt-1">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Piutang</p>
+                <p className="text-2xl sm:text-3xl font-bold num mt-1.5 text-[#141414]">
                   {formatIDR(financials.unpaidReceivables)}
                 </p>
+                <p className="text-xs text-[#6B6B6B] mt-1.5">Belum dibayar</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-[#E6DFD5] shadow-sm">
-                <span className="text-xs font-extrabold uppercase text-[#DC2626]">
-                  Total Belanja Bahan
-                </span>
-                <p className="text-2xl font-extrabold text-[#141414] mt-1">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Belanja bahan</p>
+                <p className="text-2xl sm:text-3xl font-bold num mt-1.5 text-[#141414]">
                   {formatIDR(financials.totalExpenses)}
                 </p>
+                <p className="text-xs text-[#6B6B6B] mt-1.5">Bahan baku & kemasan</p>
               </div>
-              <div className="bg-[#5C3A21] text-white p-5 rounded-2xl shadow-sm">
-                <span className="text-xs font-extrabold uppercase text-amber-200">
-                  Keuntungan Kas Bersih
-                </span>
-                <p className="text-2xl font-extrabold text-white mt-1">
+              <div className="bg-white p-4 sm:p-5">
+                <p className="text-xs text-[#6B6B6B]">Kas bersih</p>
+                <p
+                  className={`text-2xl sm:text-3xl font-bold num mt-1.5 ${
+                    financials.netCash < 0 ? 'text-[#C4242A]' : 'text-[#141414]'
+                  }`}
+                >
                   {formatIDR(financials.netCash)}
                 </p>
+                <p className="text-xs text-[#6B6B6B] mt-1.5">Setelah belanja</p>
               </div>
             </section>
 
             {/* Diagram Batang & Donat */}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 bg-white border border-[#E6DFD5] rounded-2xl p-5 shadow-sm">
+              <div className="lg:col-span-2 bg-white border border-[#E6E5E2] rounded-lg p-5 ">
                 <div className="mb-4">
-                  <h3 className="text-sm font-extrabold text-[#141414]">
+                  <h3 className="text-base font-semibold text-[#141414]">
                     Diagram Pemasukan, Pengeluaran & Keuntungan
                   </h3>
-                  <p className="text-xs text-[#786B5E]">
+                  <p className="text-xs text-[#6B6B6B]">
                     Perbandingan kas masuk lunas, piutang belum dibayar, belanja bahan, dan kas bersih
                   </p>
                 </div>
                 <div className="h-72 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={barChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F3EFEA" />
-                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#4A3F35' }} />
-                      <YAxis tick={{ fontSize: 11, fill: '#786B5E' }} />
+                      <CartesianGrid vertical={false} stroke="#EFEEEA" />
+                      <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#6B6B6B' }} />
+                      <YAxis tick={{ fontSize: 12, fill: '#6B6B6B' }} tickLine={false} axisLine={false} />
+                      <ReferenceLine y={0} stroke="#D4D3CF" />
                       <Tooltip formatter={(val) => formatIDR(val)} />
-                      <Bar dataKey="nominal" radius={[8, 8, 0, 0]}>
+                      <Bar dataKey="nominal" radius={[4, 4, 0, 0]}>
                         {barChartData.map((entry, idx) => (
                           <Cell key={`bar-${idx}`} fill={entry.fill} />
                         ))}
@@ -1664,18 +1658,18 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-white border border-[#E6DFD5] rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+              <div className="bg-white border border-[#E6E5E2] rounded-lg p-5  flex flex-col justify-between">
                 <div>
-                  <h3 className="text-sm font-extrabold text-[#141414]">
+                  <h3 className="text-base font-semibold text-[#141414]">
                     Diagram Komposisi Belanja
                   </h3>
-                  <p className="text-xs text-[#786B5E]">
+                  <p className="text-xs text-[#6B6B6B]">
                     Proporsi pengeluaran bahan baku & kemasan
                   </p>
                 </div>
 
                 {pieChartData.length === 0 ? (
-                  <div className="h-52 flex items-center justify-center text-xs text-[#786B5E]">
+                  <div className="h-52 flex items-center justify-center text-xs text-[#6B6B6B]">
                     Belum ada pengeluaran tercatat.
                   </div>
                 ) : (
@@ -1686,9 +1680,9 @@ export default function App() {
                           data={pieChartData}
                           dataKey="value"
                           nameKey="name"
-                          innerRadius={45}
-                          outerRadius={75}
-                          paddingAngle={4}
+                          innerRadius={52}
+                          outerRadius={78}
+                          paddingAngle={pieChartData.length > 1 ? 2 : 0}
                         >
                           {pieChartData.map((entry, idx) => (
                             <Cell key={`pie-${idx}`} fill={entry.color} />
@@ -1700,17 +1694,17 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="space-y-1.5 text-xs pt-2 border-t border-[#F3EFEA]">
+                <div className="space-y-1.5 text-xs pt-2 border-t border-[#F0EFEC]">
                   {pieChartData.map((item) => (
                     <div key={item.name} className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-[#4A3F35] font-medium">
+                      <span className="flex items-center gap-2 text-[#3D3D3D] font-medium">
                         <span
                           className="w-2.5 h-2.5 rounded-full"
                           style={{ backgroundColor: item.color }}
                         />
                         {item.name}
                       </span>
-                      <span className="font-extrabold text-[#141414]">{formatIDR(item.value)}</span>
+                      <span className="font-semibold text-[#141414]">{formatIDR(item.value)}</span>
                     </div>
                   ))}
                 </div>
@@ -1718,25 +1712,17 @@ export default function App() {
             </section>
 
             {/* Tabel Rekapitulasi Performa Per Outlet */}
-            <section className="bg-white border border-[#E6DFD5] rounded-2xl overflow-hidden shadow-sm">
-              <div className="p-5 border-b border-[#F3EFEA]">
-                <h3 className="text-sm font-extrabold text-[#141414]">
+            <section className="bg-white border border-[#E6E5E2] rounded-lg overflow-hidden ">
+              <div className="p-5 border-b border-[#F0EFEC]">
+                <h3 className="text-base font-semibold text-[#141414]">
                   Laporan Rekapitulasi Penjualan & Piutang per Outlet
                 </h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-[#FAF8F5] text-[#786B5E] uppercase border-b border-[#E6DFD5]">
-                    <tr>
-                      <th className="px-4 py-3.5">Nama Outlet</th>
-                      <th className="px-4 py-3.5">Total Cup Titip</th>
-                      <th className="px-4 py-3.5">Total Sisa / Retur</th>
-                      <th className="px-4 py-3.5">Total Cup Terjual</th>
-                      <th className="px-4 py-3.5">Sudah Dibayar (PAID)</th>
-                      <th className="px-4 py-3.5">Belum Dibayar (UNPAID)</th>
-                    </tr>
+                  <thead className="text-xs text-[#6B6B6B] border-b border-[#E6E5E2]"><tr><th className="px-4 py-3 font-normal">Outlet</th><th className="px-4 py-3 font-normal text-right">Titip</th><th className="px-4 py-3 font-normal text-right">Retur</th><th className="px-4 py-3 font-normal text-right">Terjual</th><th className="px-4 py-3 font-normal text-right">Dibayar</th><th className="px-4 py-3 font-normal text-right">Belum dibayar</th></tr>
                   </thead>
-                  <tbody className="divide-y divide-[#F3EFEA]">
+                  <tbody className="divide-y divide-[#F0EFEC]">
                     {outlets.map((o) => {
                       const ob = enrichedBatches.filter((b) => b.outlet_id === o.id);
                       const totalDrop = ob.reduce((s, b) => s + b.qty_drop, 0);
@@ -1750,17 +1736,8 @@ export default function App() {
                         .reduce((s, b) => s + b.total_bill, 0);
 
                       return (
-                        <tr key={o.id} className="hover:bg-[#FAF8F5]">
-                          <td className="px-4 py-3.5 font-extrabold text-[#141414]">{o.name}</td>
-                          <td className="px-4 py-3.5 font-bold">{totalDrop} cup</td>
-                          <td className="px-4 py-3.5 text-[#1D4ED8] font-bold">{totalRet} cup</td>
-                          <td className="px-4 py-3.5 font-bold">{totalSold} cup</td>
-                          <td className="px-4 py-3.5 font-extrabold text-[#15803D]">
-                            {formatIDR(paidAmt)}
-                          </td>
-                          <td className="px-4 py-3.5 font-extrabold text-[#D97706]">
-                            {formatIDR(unpaidAmt)}
-                          </td>
+                        <tr key={o.id} className="hover:bg-[#F4F3F0]">
+                          <td className="px-4 py-3 text-[#141414]">{o.name}</td><td className="px-4 py-3 text-right num">{totalDrop} cup</td><td className="px-4 py-3 text-right num">{totalRet} cup</td><td className="px-4 py-3 text-right num">{totalSold} cup</td><td className="px-4 py-3 text-right num text-[#6B6B6B]">{formatIDR(paidAmt)}</td><td className={`px-4 py-3 text-right num ${unpaidAmt > 0 ? 'text-[#92400E] font-medium' : 'text-[#6B6B6B]'}`}>{formatIDR(unpaidAmt)}</td>
                         </tr>
                       );
                     })}
@@ -1778,59 +1755,57 @@ export default function App() {
           <div className="space-y-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-extrabold tracking-tight text-[#141414]">
-                  Master Data Outlet & Varian Pudding
-                </h2>
-                <p className="text-sm text-[#786B5E]">
-                  Tambah varian rasa baru beserta harganya (default: Pudding Coklat Rp 5.000) atau kelola daftar outlet mitra.
+                <h1 className="text-2xl font-semibold tracking-tight text-[#141414]">
+                  Master outlet &amp; varian
+                </h1>
+                <p className="text-sm text-[#6B6B6B] mt-1">
+                  Kelola outlet mitra dan harga varian pudding.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setOutletModal({ name: '', contact: '' })}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-white border border-[#5C3A21] text-[#5C3A21] hover:bg-[#F3EFEA]"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-md text-xs font-bold bg-white border border-[#D4D3CF] text-[#141414] hover:bg-[#F4F3F0]"
                 >
-                  <Plus className="w-4 h-4" /> + Outlet Baru
+                  <Plus className="w-4 h-4" /> Outlet baru
                 </button>
                 <button
                   onClick={() => {
                     setVariantForm({ id: null, name: '', price: '5000' });
                     setVariantModal(true);
                   }}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-[#5C3A21] text-white hover:bg-[#4A2E1B]"
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-md text-xs font-bold bg-[#1D1F20] text-white hover:bg-black"
                 >
-                  <Plus className="w-4 h-4" /> + Varian Pudding
+                  <Plus className="w-4 h-4" /> Varian baru
                 </button>
               </div>
             </div>
 
             {/* KATALOG VARIAN PUDDING & HARGA */}
-            <section className="bg-white border border-[#E6DFD5] rounded-2xl p-6 shadow-sm space-y-4">
+            <section className="bg-white border border-[#E6E5E2] rounded-lg p-6  space-y-4">
               <div>
-                <h3 className="text-base font-extrabold text-[#141414]">
+                <h3 className="text-base font-semibold text-[#141414]">
                   Katalog Varian Pudding & Harga Satuan
                 </h3>
-                <p className="text-xs text-[#786B5E]">
+                <p className="text-xs text-[#6B6B6B]">
                   Harga varian otomatis diambil saat Anda menitipkan pudding di kartu outlet.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="divide-y divide-[#F0EFEC] border-t border-[#F0EFEC]">
                 {products.map((prod) => (
                   <div
                     key={prod.id}
-                    className="p-4 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] flex items-center justify-between"
+                    className="flex items-center justify-between gap-3 py-3"
                   >
                     <div>
-                      <div className="flex items-center gap-2">
-                        <Package className="w-4 h-4 text-[#5C3A21]" />
-                        <h4 className="font-extrabold text-sm text-[#141414]">{prod.name}</h4>
-                      </div>
-                      <p className="text-base font-extrabold text-[#5C3A21] mt-1">
-                        {formatIDR(prod.price)} <span className="text-xs font-normal">/ cup</span>
-                      </p>
+                      <p className="text-sm font-medium text-[#141414]">{prod.name}</p>
+                      <p className="text-xs text-[#6B6B6B] mt-0.5">Harga per cup</p>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-semibold num text-[#141414]">
+                        {formatIDR(prod.price)}
+                      </p>
                       <button
                         onClick={() => {
                           setVariantForm({
@@ -1840,8 +1815,9 @@ export default function App() {
                           });
                           setVariantModal(true);
                         }}
-                        className="p-2 rounded-lg bg-amber-50 text-[#D97706] border border-amber-200 hover:bg-amber-100"
-                        title="Edit Varian"
+                        className="p-1.5 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#141414] transition-colors"
+                        title="Edit varian"
+                        aria-label={`Edit varian ${prod.name}`}
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
@@ -1853,8 +1829,9 @@ export default function App() {
                             title: `Varian ${prod.name}`,
                           })
                         }
-                        className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
-                        title="Hapus Varian"
+                        className="p-1.5 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#C4242A] transition-colors"
+                        title="Hapus varian"
+                        aria-label={`Hapus varian ${prod.name}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1865,13 +1842,13 @@ export default function App() {
             </section>
 
             {/* DAFTAR MASTER OUTLET */}
-            <section className="bg-white border border-[#E6DFD5] rounded-2xl p-6 shadow-sm space-y-4">
+            <section className="bg-white border border-[#E6E5E2] rounded-lg p-6  space-y-4">
               <div>
-                <h3 className="text-base font-extrabold text-[#141414]">
-                  Daftar Master Outlet Mitra ({outlets.length})
+                <h3 className="text-base font-semibold text-[#141414]">
+                  Outlet mitra <span className="text-sm font-normal text-[#6B6B6B]">{outlets.length}</span>
                 </h3>
-                <p className="text-xs text-[#786B5E]">
-                  Daftar outlet aktif yang tampil di halaman Dashboard utama.
+                <p className="text-xs text-[#6B6B6B]">
+                  Muncul sebagai kartu di dashboard.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -1885,14 +1862,14 @@ export default function App() {
                   return (
                     <div
                       key={o.id}
-                      className="p-4 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] flex items-center justify-between gap-3"
+                      className="p-4 rounded-md border border-[#EFEEEA] flex items-center justify-between gap-3"
                     >
                       <div>
-                        <h4 className="font-extrabold text-sm text-[#141414]">{o.name}</h4>
-                        <p className="text-xs text-[#786B5E] mt-0.5">Kontak: {o.contact}</p>
+                        <h4 className="font-semibold text-sm text-[#141414]">{o.name}</h4>
+                        <p className="text-xs text-[#6B6B6B] mt-0.5">Kontak: {o.contact}</p>
                         <p
-                          className={`text-xs font-extrabold mt-1 ${
-                            unpaidTotal > 0 ? 'text-[#D97706]' : 'text-[#15803D]'
+                          className={`text-xs mt-1 ${
+                            unpaidTotal > 0 ? 'text-[#92400E]' : 'text-[#6B6B6B]'
                           }`}
                         >
                           Piutang:{' '}
@@ -1900,27 +1877,25 @@ export default function App() {
                             ? `${formatIDR(unpaidTotal)} (${unpaidBatches.length} batch${
                                 unpaidOlder > 0 ? `, ${unpaidOlder} dari hari sebelumnya` : ''
                               })`
-                            : 'Rp 0 (Lunas)'}
+                            : 'Rp 0'}
                         </p>
                         {unpaidTotal > 0 && (
                           <button
                             type="button"
                             onClick={() => handleSettleAllOutlet(o.id)}
-                            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-[#15803D] text-white hover:bg-green-800"
+                            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold bg-[#1D1F20] text-white hover:bg-black"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua
                           </button>
                         )}
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-[#15803D]">
-                          Aktif
-                        </span>
+                        
                         <button
                           onClick={() =>
                             setOutletModal({ id: o.id, name: o.name, contact: o.contact })
                           }
-                          className="p-2 rounded-lg bg-amber-50 text-[#D97706] border border-amber-200 hover:bg-amber-100"
+                          className="p-2 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#141414] transition-colors"
                           title="Edit Outlet"
                         >
                           <Pencil className="w-3.5 h-3.5" />
@@ -1929,7 +1904,7 @@ export default function App() {
                           onClick={() =>
                             setDeleteDialog({ type: 'outlet', id: o.id, title: `Outlet ${o.name}` })
                           }
-                          className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
+                          className="p-2 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#C4242A] transition-colors"
                           title="Hapus Outlet"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1950,31 +1925,31 @@ export default function App() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-extrabold tracking-tight text-[#141414]">
-                  Riwayat Seluruh Transaksi (Uang Masuk & Uang Keluar)
-                </h2>
-                <p className="text-sm text-[#786B5E]">
-                  Daftar lengkap seluruh pemasukan penjualan pudding, piutang belum dibayar, dan pengeluaran belanja bahan.
+                <h1 className="text-2xl font-semibold tracking-tight text-[#141414]">
+                  Riwayat transaksi
+                </h1>
+                <p className="text-sm text-[#6B6B6B] mt-1">
+                  Pemasukan, piutang, dan belanja bahan dalam satu daftar.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setExpenseModal(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-[#DC2626] text-white hover:bg-red-700"
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-md text-xs font-bold bg-[#1D1F20] text-white hover:bg-black"
                 >
-                  <ShoppingBag className="w-4 h-4" /> + Catat Belanja Bahan
+                  <ShoppingBag className="w-4 h-4" /> Catat belanja bahan
                 </button>
               </div>
             </div>
 
             {/* Akumulasi Piutang per Outlet + Bayar Semua */}
-            <div className="bg-white border border-[#E6DFD5] rounded-2xl p-4">
+            <div className="bg-white border border-[#E6E5E2] rounded-lg p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-[#D97706]">
-                    Piutang Menumpuk (RECONCILED + UNPAID)
+                  <span className="text-xs text-[#6B6B6B]">
+                    Piutang belum dibayar
                   </span>
-                  <p className="text-xl font-extrabold text-[#141414]">
+                  <p className="text-xl font-semibold text-[#141414]">
                     {formatIDR(financials.unpaidReceivables)}
                   </p>
                 </div>
@@ -1982,7 +1957,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => handleSettleAllOutlet('ALL')}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[#15803D] text-white hover:bg-green-800"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-md text-xs font-bold bg-[#1D1F20] text-white hover:bg-black"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" /> Bayar Semua Outlet
                   </button>
@@ -2004,7 +1979,7 @@ export default function App() {
                       key={o.id}
                       type="button"
                       onClick={() => handleSettleAllOutlet(o.id)}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-[#D97706]/40 text-xs font-bold text-[#D97706] hover:bg-amber-100"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-white border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0]"
                       title={`Bayar semua piutang ${o.name}`}
                     >
                       {o.name}
@@ -2012,7 +1987,7 @@ export default function App() {
                       <span className="font-semibold">
                         ({unpaidBatches.length} batch{older > 0 ? `, ${older} kemarin` : ''})
                       </span>
-                      <span className="text-[#15803D]">→ Bayar Semua</span>
+                      <span className="text-[#6B6B6B]">Bayar</span>
                     </button>
                   );
                 })}
@@ -2020,44 +1995,44 @@ export default function App() {
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-white border border-[#E6DFD5] rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="bg-white border border-[#E6E5E2] rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex flex-wrap gap-1.5">
                 <button
                   onClick={() => setTxFilter('ALL')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                  className={`px-3.5 py-2 rounded-md text-xs font-bold transition ${
                     txFilter === 'ALL'
                       ? 'bg-[#141414] text-white'
-                      : 'bg-[#FAF8F5] text-[#4A3F35] hover:bg-[#F3EFEA]'
+                      : 'bg-[#F4F3F0] text-[#3D3D3D] hover:bg-[#F0EFEC]'
                   }`}
                 >
                   Semua Transaksi ({unifiedTransactions.length})
                 </button>
                 <button
                   onClick={() => setTxFilter('CASH_IN')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                  className={`px-3.5 py-2 rounded-md text-xs font-bold transition ${
                     txFilter === 'CASH_IN'
-                      ? 'bg-[#15803D] text-white'
-                      : 'bg-emerald-50 text-[#15803D] hover:bg-emerald-100'
+                      ? 'bg-[#141414] text-white'
+                      : 'bg-white text-[#141414] hover:bg-[#F4F3F0]'
                   }`}
                 >
                   Uang Masuk / PAID
                 </button>
                 <button
                   onClick={() => setTxFilter('UNPAID')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                  className={`px-3.5 py-2 rounded-md text-xs font-bold transition ${
                     txFilter === 'UNPAID'
-                      ? 'bg-[#D97706] text-white'
-                      : 'bg-amber-50 text-[#D97706] hover:bg-amber-100'
+                      ? 'bg-[#141414] text-white'
+                      : 'bg-white text-[#141414] hover:bg-[#F4F3F0]'
                   }`}
                 >
                   Belum Dibayar / Aktif
                 </button>
                 <button
                   onClick={() => setTxFilter('EXPENSE')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                  className={`px-3.5 py-2 rounded-md text-xs font-bold transition ${
                     txFilter === 'EXPENSE'
-                      ? 'bg-[#DC2626] text-white'
-                      : 'bg-red-50 text-[#DC2626] hover:bg-red-100'
+                      ? 'bg-[#141414] text-white'
+                      : 'bg-white text-[#141414] hover:bg-[#F4F3F0]'
                   }`}
                 >
                   Uang Keluar (Belanja Bahan)
@@ -2065,11 +2040,11 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-[#786B5E]" />
+                <Filter className="w-4 h-4 text-[#6B6B6B]" />
                 <select
                   value={txOutletFilter}
                   onChange={(e) => setTxOutletFilter(e.target.value)}
-                  className="text-xs border border-[#E6DFD5] rounded-xl px-3 py-2 bg-[#FAF8F5] font-bold"
+                  className="text-xs border border-[#E6E5E2] rounded-md px-3 py-2 bg-[#F4F3F0] font-bold"
                 >
                   <option value="ALL">Semua Outlet</option>
                   {outlets.map((o) => (
@@ -2082,109 +2057,83 @@ export default function App() {
             </div>
 
             {/* Tabel Gabungan Seluruh Transaksi */}
-            <div className="bg-white border border-[#E6DFD5] rounded-2xl overflow-hidden shadow-sm">
+            <div className="bg-white border border-[#E6E5E2] rounded-lg overflow-hidden ">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-[#FAF8F5] text-[#786B5E] uppercase border-b border-[#E6DFD5]">
+                  <thead className="text-xs text-[#6B6B6B] border-b border-[#E6E5E2]">
                     <tr>
-                      <th className="px-4 py-3.5">Tanggal</th>
-                      <th className="px-4 py-3.5">Tipe Arus</th>
-                      <th className="px-4 py-3.5">Keterangan / Outlet</th>
-                      <th className="px-4 py-3.5">Status</th>
-                      <th className="px-4 py-3.5">Nominal</th>
-                      <th className="px-4 py-3.5 text-right">Aksi CRUD</th>
+                      <th className="px-4 py-3 font-normal">Tanggal</th>
+                      <th className="px-4 py-3 font-normal">Keterangan</th>
+                      <th className="px-4 py-3 font-normal">Status</th>
+                      <th className="px-4 py-3 font-normal text-right">Nominal</th>
+                      <th className="px-4 py-3 font-normal text-right">Aksi</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#F3EFEA]">
+                  <tbody className="divide-y divide-[#F0EFEC]">
                     {filteredTransactions.map((item) => (
-                      <tr key={`${item.txType}-${item.id}`} className="hover:bg-[#FAF8F5]">
-                        <td className="px-4 py-3.5 font-bold text-[#141414] whitespace-nowrap">
-                          {item.date}
+                      <tr key={`${item.txType}-${item.id}`} className="hover:bg-[#FAFAF9]">
+                        <td className="px-4 py-3 text-[#6B6B6B] whitespace-nowrap num">{item.date}</td>
+                        <td className="px-4 py-3">
+                          <p className="text-[#141414]">{item.title}</p>
+                          <p className="text-[#6B6B6B] mt-0.5">
+                            {item.txType === 'EXPENSE'
+                              ? 'Belanja bahan'
+                              : item.status === 'PAID'
+                              ? 'Uang masuk'
+                              : 'Konsinyasi'}{' '}
+                            · {item.subtitle}
+                          </p>
                         </td>
-                        <td className="px-4 py-3.5">
-                          {item.txType === 'EXPENSE' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-[#DC2626] font-bold">
-                              <ArrowUpRight className="w-3.5 h-3.5" /> Uang Keluar
-                            </span>
-                          ) : item.status === 'PAID' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-[#15803D] font-bold">
-                              <ArrowDownLeft className="w-3.5 h-3.5" /> Uang Masuk
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-[#D97706] font-bold">
-                              <Clock className="w-3.5 h-3.5" /> Konsinyasi
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <div className="font-extrabold text-[#141414]">{item.title}</div>
-                          <div className="text-[#786B5E]">{item.subtitle}</div>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {item.status === 'EXPENSE' && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-[#DC2626] font-bold text-[11px]">
-                              POTONG KAS
-                            </span>
-                          )}
+                        <td className="px-4 py-3">
                           {item.status === 'PAID' && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-[#15803D] font-bold text-[11px]">
-                              PAID (Lunas)
+                            <span className="inline-flex h-6 items-center px-2 rounded-full text-xs font-medium bg-[#E7F3E9] text-[#1E5B24] border border-[#CDE6D2]">
+                              Lunas
                             </span>
                           )}
                           {item.status === 'UNPAID' && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-[#D97706] font-bold text-[11px]">
-                              UNPAID (Belum Bayar)
+                            <span className="inline-flex h-6 items-center px-2 rounded-full text-xs font-medium bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A]">
+                              Belum dibayar
                             </span>
                           )}
                           {item.status === 'ACTIVE' && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-[#1D4ED8] font-bold text-[11px]">
-                              ACTIVE (Dititip)
+                            <span className="inline-flex h-6 items-center px-2 rounded-full text-xs font-medium bg-[#F0EFEC] text-[#3D3D3D]">
+                              Dititip
                             </span>
                           )}
+                          {item.status === 'EXPENSE' && <span className="text-[#6B6B6B]">—</span>}
                         </td>
-                        <td className="px-4 py-3.5 font-extrabold whitespace-nowrap">
+                        <td className="px-4 py-3 text-right num whitespace-nowrap">
                           {item.txType === 'EXPENSE' ? (
-                            <span className="text-[#DC2626]">-{formatIDR(item.amount)}</span>
+                            <span className="text-[#141414]">−{formatIDR(item.amount)}</span>
                           ) : item.status === 'ACTIVE' ? (
-                            <span className="text-[#786B5E]">Menunggu Sisa</span>
+                            <span className="text-[#6B6B6B]">Menunggu sisa</span>
                           ) : (
-                            <span
-                              className={
-                                item.status === 'PAID' ? 'text-[#15803D]' : 'text-[#D97706]'
-                              }
-                            >
-                              +{formatIDR(item.amount)}
-                            </span>
+                            <span className="text-[#141414]">+{formatIDR(item.amount)}</span>
                           )}
                         </td>
-                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5">
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1">
                             {item.txType === 'CONSIGNMENT' && item.status === 'ACTIVE' && (
                               <button
                                 onClick={() => {
                                   setReconcileModal(item.raw);
                                   setReconcileForm({ qtyReturned: 2, paidNow: false });
                                 }}
-                                className="px-2.5 py-1 rounded-lg bg-[#1D4ED8] text-white font-bold"
+                                className="h-7 px-2.5 rounded-md border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0] transition-colors"
                               >
-                                Input Sisa
+                                Input sisa
                               </button>
                             )}
 
                             {item.txType === 'CONSIGNMENT' && item.status !== 'ACTIVE' && (
                               <button
                                 onClick={() => handleTogglePaymentStatus(item.raw)}
-                                className={`px-2.5 py-1 rounded-lg font-bold ${
-                                  item.status === 'UNPAID'
-                                    ? 'bg-[#15803D] text-white'
-                                    : 'bg-amber-100 text-[#D97706]'
-                                }`}
+                                className="h-7 px-2.5 rounded-md border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0] transition-colors"
                               >
-                                {item.status === 'UNPAID' ? 'Lunasi' : 'Set Unpaid'}
+                                {item.status === 'UNPAID' ? 'Lunasi' : 'Set unpaid'}
                               </button>
                             )}
 
-                            {/* Edit Button (Kuning Primer) */}
                             <button
                               onClick={() => {
                                 if (item.txType === 'CONSIGNMENT') {
@@ -2202,13 +2151,13 @@ export default function App() {
                                   });
                                 }
                               }}
-                              className="p-1.5 rounded-lg bg-amber-50 text-[#D97706] border border-amber-200"
-                              title="Edit"
+                              className="p-1.5 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#141414] transition-colors"
+                              title="Edit transaksi"
+                              aria-label={`Edit ${item.title}`}
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
 
-                            {/* Delete Button (Merah Primer) */}
                             <button
                               onClick={() =>
                                 setDeleteDialog({
@@ -2217,8 +2166,9 @@ export default function App() {
                                   title: item.title,
                                 })
                               }
-                              className="p-1.5 rounded-lg bg-red-50 text-[#DC2626] border border-red-200"
-                              title="Hapus"
+                              className="p-1.5 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#C4242A] transition-colors"
+                              title="Hapus transaksi"
+                              aria-label={`Hapus ${item.title}`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -2238,27 +2188,26 @@ export default function App() {
         =================================================================== */}
         {activeTab === 'ai-validation' && (
           <div className="space-y-6">
-            <div className="bg-white border border-[#E6DFD5] rounded-2xl p-6 shadow-sm">
-              <div className="inline-flex items-center gap-1.5 text-[#5C3A21] text-xs font-extrabold uppercase tracking-wider mb-1">
-                <Sparkles className="w-4 h-4" /> Halaman Validasi AI
-              </div>
-              <h2 className="text-2xl font-extrabold tracking-tight text-[#141414]">
-                Daftar Chat yang Belum Dipelajari oleh AI
-              </h2>
-              <p className="text-sm text-[#786B5E] mt-1">
-                Setiap ada perintah baru di chat AI pojok kanan bawah yang belum dikenali, otomatis masuk ke daftar ini dengan status{' '}
-                <strong className="text-[#141414]">&ldquo;Perintah sedang dipelajari&rdquo;</strong>. Klik{' '}
-                <strong className="text-[#DC2626]">Hapus</strong> jika di luar cakupan bisnis Melpud.
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-[#141414]">
+                Validasi AI
+              </h1>
+              <p className="text-sm text-[#6B6B6B] mt-1">
+                Perintah chat yang belum dikenali AI masuk ke antrean ini. Hapus
+                yang di luar cakupan bisnis Melpud.
               </p>
             </div>
 
             <section className="space-y-3">
-              <h3 className="text-sm font-extrabold text-[#141414]">
-                Antrean Chat Belum Dipelajari ({pendingAiLogs.length})
-              </h3>
+              <h2 className="text-base font-semibold text-[#141414]">
+                Antrean chat{' '}
+                <span className="text-sm font-normal text-[#6B6B6B]">
+                  {pendingAiLogs.length}
+                </span>
+              </h2>
 
               {pendingAiLogs.length === 0 ? (
-                <div className="bg-white border border-[#E6DFD5] rounded-2xl p-8 text-center text-sm text-[#786B5E]">
+                <div className="bg-white border border-[#E6E5E2] rounded-lg p-8 text-center text-sm text-[#6B6B6B]">
                   Tidak ada antrean chat baru. Semua perintah sudah dipelajari atau dihapus.
                 </div>
               ) : (
@@ -2266,19 +2215,19 @@ export default function App() {
                   {pendingAiLogs.map((item) => (
                     <div
                       key={item.id}
-                      className="bg-white border border-[#E6DFD5] rounded-2xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm"
+                      className="bg-white border border-[#E6E5E2] rounded-lg p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 "
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-[#D97706]">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-[#92400E]">
                             Perintah sedang dipelajari
                           </span>
-                          <span className="text-xs text-[#786B5E]">{item.created_at}</span>
+                          <span className="text-xs text-[#6B6B6B]">{item.created_at}</span>
                         </div>
-                        <p className="text-base font-extrabold text-[#141414]">
+                        <p className="text-base font-semibold text-[#141414]">
                           &ldquo;{item.raw_text}&rdquo;
                         </p>
-                        <p className="text-xs text-[#786B5E]">{item.ai_reason}</p>
+                        <p className="text-xs text-[#6B6B6B]">{item.ai_reason}</p>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -2290,7 +2239,7 @@ export default function App() {
                               [item.id]: e.target.value,
                             })
                           }
-                          className="px-3 py-2 text-xs font-bold bg-[#FAF8F5] border border-[#E6DFD5] rounded-xl"
+                          className="px-3 py-2 text-xs font-bold bg-[#F4F3F0] border border-[#E6E5E2] rounded-md"
                         >
                           <option value="CREATE_DROP">Pelajari: Titip Pudding</option>
                           <option value="RECONCILE_BATCH">Pelajari: Cek Sisa / Retur</option>
@@ -2301,7 +2250,7 @@ export default function App() {
                         {/* Validasi = Hijau Primer */}
                         <button
                           onClick={() => handleValidateAiLog(item.id)}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#15803D] text-white hover:bg-green-800 transition"
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-bold bg-[#1D1F20] text-white hover:bg-black transition"
                         >
                           <Check className="w-3.5 h-3.5" /> Validasi & Pelajari
                         </button>
@@ -2315,7 +2264,7 @@ export default function App() {
                               title: `Chat AI: "${item.raw_text}"`,
                             })
                           }
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#DC2626] text-white hover:bg-red-700 transition"
+                          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-[#D4D3CF] text-xs font-medium text-[#141414] hover:bg-[#F4F3F0] transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" /> Hapus
                         </button>
@@ -2327,11 +2276,11 @@ export default function App() {
             </section>
 
             {learnedAiLogs.length > 0 && (
-              <section className="space-y-3 pt-4 border-t border-[#E6DFD5]">
-                <h3 className="text-sm font-extrabold text-[#4A3F35]">
+              <section className="space-y-3 pt-4 border-t border-[#E6E5E2]">
+                <h3 className="text-sm font-semibold text-[#3D3D3D]">
                   Perintah yang Sudah Dipelajari ({learnedAiLogs.length})
                 </h3>
-                <div className="bg-white border border-[#E6DFD5] rounded-2xl divide-y divide-[#F3EFEA]">
+                <div className="bg-white border border-[#E6E5E2] rounded-lg divide-y divide-[#F0EFEC]">
                   {learnedAiLogs.map((l) => (
                     <div
                       key={l.id}
@@ -2341,7 +2290,7 @@ export default function App() {
                         <p className="text-sm font-bold text-[#141414]">
                           &ldquo;{l.raw_text}&rdquo;
                         </p>
-                        <span className="text-xs text-[#15803D] font-bold">
+                        <span className="text-xs text-[#2E7D32] font-bold">
                           Kategori: {l.mapped_intent}
                         </span>
                       </div>
@@ -2353,7 +2302,7 @@ export default function App() {
                             title: `Chat AI: "${l.raw_text}"`,
                           })
                         }
-                        className="p-2 rounded-lg bg-red-50 text-[#DC2626] border border-red-200 hover:bg-red-100"
+                        className="p-2 rounded-md text-[#6B6B6B] hover:bg-[#F0EFEC] hover:text-[#C4242A] transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -2372,16 +2321,16 @@ export default function App() {
       ===================================================================== */}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end">
         {chatOpen && (
-          <div className="mb-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-[#E6DFD5] overflow-hidden flex flex-col">
+          <div className="mb-3 w-80 sm:w-96 bg-white rounded-lg shadow-2xl border border-[#E6E5E2] overflow-hidden flex flex-col">
             {/* Header Chat WA Style */}
-            <div className="bg-[#5C3A21] text-white px-4 py-3 flex items-center justify-between">
+            <div className="bg-[#1D1F20] text-white px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-extrabold text-sm">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-semibold text-sm">
                   AI
                 </div>
                 <div>
-                  <h4 className="text-sm font-extrabold leading-tight">Melpud AI Chat</h4>
-                  <span className="text-[11px] text-emerald-300 flex items-center gap-1">
+                  <h4 className="text-sm font-semibold leading-tight">Melpud AI Chat</h4>
+                  <span className="text-xs text-emerald-300 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Online • Pencatat Otomatis
                   </span>
                 </div>
@@ -2395,7 +2344,7 @@ export default function App() {
             </div>
 
             {/* Area Bubble Chat */}
-            <div className="h-80 overflow-y-auto p-3.5 space-y-2.5 bg-[#EFEAE2]">
+            <div className="h-80 overflow-y-auto p-3.5 space-y-2.5 bg-[#EDECEA]">
               {chatMessages.map((msg) => (
                 <div
                   key={msg.id}
@@ -2404,11 +2353,11 @@ export default function App() {
                   }`}
                 >
                   <div
-                    className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed shadow-sm ${
+                    className={`max-w-[82%] rounded-lg px-3.5 py-2 text-xs leading-relaxed  ${
                       msg.sender === 'user'
                         ? 'bg-[#5C3A21] text-white rounded-br-none'
                         : msg.isLearning
-                        ? 'bg-amber-50 text-[#141414] border border-[#D97706] rounded-bl-none'
+                        ? 'bg-[#FFFBEB] text-[#141414] border border-[#FDE68A] rounded-bl-none'
                         : 'bg-white text-[#141414] rounded-bl-none'
                     }`}
                   >
@@ -2416,15 +2365,15 @@ export default function App() {
                     {/* Kartu konfirmasi aksi AI: detail parameter + Konfirmasi/Batal.
                         Eksekusi ke Supabase HANYA terjadi saat tombol ditekan. */}
                     {msg.confirm && (
-                      <div className="mt-2 border-t border-[#E6DFD5] pt-2 space-y-2">
+                      <div className="mt-2 border-t border-[#E6E5E2] pt-2 space-y-2">
                         <dl className="space-y-1">
                           {msg.confirm.summary.map(([label, value]) => (
                             <div
                               key={label}
-                              className="flex items-start justify-between gap-3 text-[11px]"
+                              className="flex items-start justify-between gap-3 text-xs"
                             >
-                              <dt className="text-[#786B5E] font-semibold shrink-0">{label}</dt>
-                              <dd className="font-extrabold text-[#141414] text-right break-all">
+                              <dt className="text-[#6B6B6B] font-semibold shrink-0">{label}</dt>
+                              <dd className="font-semibold text-[#141414] text-right break-all">
                                 {value}
                               </dd>
                             </div>
@@ -2435,39 +2384,39 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleConfirmAiAction(msg.id)}
-                              className="flex-1 px-3 py-2 rounded-xl text-[11px] font-extrabold bg-[#15803D] text-white hover:bg-green-800"
+                              className="flex-1 px-3 py-2 rounded-md text-xs font-semibold bg-[#1D1F20] text-white hover:bg-black"
                             >
                               Konfirmasi &amp; Jalankan
                             </button>
                             <button
                               type="button"
                               onClick={() => handleCancelAiAction(msg.id)}
-                              className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white border border-[#E6DFD5] text-[#786B5E] hover:bg-[#FAF8F5]"
+                              className="px-3 py-2 rounded-md text-xs font-bold bg-white border border-[#E6E5E2] text-[#6B6B6B] hover:bg-[#F4F3F0]"
                             >
                               Batal
                             </button>
                           </div>
                         )}
                         {msg.confirmState === 'running' && (
-                          <p className="text-[11px] font-bold text-[#1D4ED8]">
+                          <p className="text-xs font-bold text-[#1D1F20]">
                             Menjalankan aksi ke Supabase…
                           </p>
                         )}
                         {msg.confirmState === 'done' && (
-                          <p className="text-[11px] font-bold text-[#15803D]">
+                          <p className="text-xs font-bold text-[#2E7D32]">
                             Selesai dijalankan ✓
                           </p>
                         )}
                         {msg.confirmState === 'cancelled' && (
-                          <p className="text-[11px] font-bold text-[#786B5E]">
+                          <p className="text-xs font-bold text-[#6B6B6B]">
                             Dibatalkan — tidak ada data yang diubah.
                           </p>
                         )}
                       </div>
                     )}
                     <span
-                      className={`block text-[10px] mt-1 text-right ${
-                        msg.sender === 'user' ? 'text-amber-100/80' : 'text-[#786B5E]'
+                      className={`block text-xs mt-1 text-right ${
+                        msg.sender === 'user' ? 'text-amber-100/80' : 'text-[#6B6B6B]'
                       }`}
                     >
                       {msg.time}
@@ -2481,14 +2430,14 @@ export default function App() {
             {/* Form Input Simple: Kolom Chat + Tombol Kirim Saja */}
             <form
               onSubmit={handleSendChat}
-              className="p-2.5 bg-white border-t border-[#E6DFD5] flex items-center gap-2"
+              className="p-2.5 bg-white border-t border-[#E6E5E2] flex items-center gap-2"
             >
               <input
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ketik pesan perintah..."
-                className="flex-1 px-3.5 py-2 text-xs bg-[#FAF8F5] border border-[#E6DFD5] rounded-full focus:outline-none focus:border-[#5C3A21]"
+                className="flex-1 px-3.5 py-2 text-xs bg-[#F4F3F0] border border-[#E6E5E2] rounded-full focus:outline-none focus:border-[#5C3A21]"
               />
               <button
                 type="submit"
@@ -2504,7 +2453,7 @@ export default function App() {
         {/* Tombol Floating Bulat di Pojok Kanan Bawah */}
         <button
           onClick={() => setChatOpen((prev) => !prev)}
-          className="h-14 px-5 rounded-full bg-[#5C3A21] hover:bg-[#4A2E1B] text-white shadow-xl flex items-center gap-2.5 font-extrabold text-xs transition-transform active:scale-95"
+          className="h-12 px-4 rounded-full bg-[#1D1F20] hover:bg-black text-white shadow-xl flex items-center gap-2.5 font-semibold text-xs transition-transform active:scale-95"
         >
           {chatOpen ? (
             <>
@@ -2526,20 +2475,20 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleCreateDrop}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#5C3A21]"
+            className="bg-white rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]"
           >
-            <div className="flex items-center gap-2 text-[#5C3A21] font-extrabold">
+            <div className="flex items-center gap-2 text-[#5C3A21] font-semibold">
               <PlusCircle className="w-5 h-5" />
               <h3>Titip Pudding ke Outlet</h3>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Pilih Outlet
               </label>
               <select
                 value={dropModal.outletId}
                 onChange={(e) => setDropModal({ ...dropModal, outletId: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               >
                 {outlets.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -2549,13 +2498,13 @@ export default function App() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Varian Pudding
               </label>
               <select
                 value={dropForm.productId}
                 onChange={(e) => setDropForm({ ...dropForm, productId: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               >
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -2566,7 +2515,7 @@ export default function App() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+                <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                   Jumlah Cup
                 </label>
                 <input
@@ -2575,18 +2524,18 @@ export default function App() {
                   required
                   value={dropForm.qty}
                   onChange={(e) => setDropForm({ ...dropForm, qty: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                  className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+                <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                   Tanggal
                 </label>
                 <input
                   type="date"
                   value={dropForm.date}
                   onChange={(e) => setDropForm({ ...dropForm, date: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                  className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
                 />
               </div>
             </div>
@@ -2594,13 +2543,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setDropModal({ open: false, outletId: 'p-bungin' })}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#5C3A21] hover:bg-[#4A2E1B] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#5C3A21] hover:bg-[#4A2E1B] rounded-md"
               >
                 Simpan Titipan
               </button>
@@ -2614,18 +2563,18 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleReconcileSave}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#1D4ED8]"
+            className="bg-white rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]"
           >
-            <div className="flex items-center gap-2 text-[#1D4ED8] font-extrabold">
+            <div className="flex items-center gap-2 text-[#1D1F20] font-semibold">
               <RotateCcw className="w-5 h-5" />
               <h3>Cek Sisa Cup & Status Pembayaran</h3>
             </div>
-            <p className="text-xs text-[#5A4E43]">
+            <p className="text-xs text-[#5F5F5F]">
               Outlet: <strong>{reconcileModal.outlet_name}</strong> • Titip Awal:{' '}
               <strong>{reconcileModal.qty_drop} cup</strong> ({reconcileModal.product_name})
             </p>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Berapa Sisa Cup yang Diambil?
               </label>
               <input
@@ -2637,10 +2586,10 @@ export default function App() {
                 onChange={(e) =>
                   setReconcileForm({ ...reconcileForm, qtyReturned: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
-            <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-950 space-y-1">
+            <div className="p-3.5 rounded-md bg-blue-50 border border-blue-200 text-xs text-blue-950 space-y-1">
               <div>
                 Terjual:{' '}
                 <strong>
@@ -2671,13 +2620,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setReconcileModal(null)}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#1D4ED8] hover:bg-blue-800 rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#1D1F20] hover:bg-blue-800 rounded-md"
               >
                 Simpan Sisa
               </button>
@@ -2691,14 +2640,14 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleEditBatchSave}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#D97706]"
+            className="bg-white rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]"
           >
-            <div className="flex items-center gap-2 text-[#D97706] font-extrabold">
+            <div className="flex items-center gap-2 text-[#92400E] font-semibold">
               <Pencil className="w-5 h-5" />
               <h3>Edit Data Titipan ({editBatchModal.outlet_name})</h3>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Jumlah Cup Titip
               </label>
               <input
@@ -2708,12 +2657,12 @@ export default function App() {
                 onChange={(e) =>
                   setEditBatchForm({ ...editBatchForm, qty_drop: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             {editBatchModal.status === 'RECONCILED' && (
               <div>
-                <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+                <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                   Jumlah Cup Sisa
                 </label>
                 <input
@@ -2724,7 +2673,7 @@ export default function App() {
                   onChange={(e) =>
                     setEditBatchForm({ ...editBatchForm, qty_returned: e.target.value })
                   }
-                  className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                  className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
                 />
               </div>
             )}
@@ -2732,13 +2681,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setEditBatchModal(null)}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#D97706] hover:bg-amber-700 rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#92400E] hover:bg-amber-700 rounded-md"
               >
                 Simpan Perubahan
               </button>
@@ -2752,14 +2701,14 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleCreateExpense}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#DC2626]"
+            className="bg-white rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]"
           >
-            <div className="flex items-center gap-2 text-[#DC2626] font-extrabold">
+            <div className="flex items-center gap-2 text-[#C4242A] font-semibold">
               <ShoppingBag className="w-5 h-5" />
               <h3>Catat Belanja Bahan (Uang Keluar)</h3>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Kategori Pengeluaran
               </label>
               <select
@@ -2767,7 +2716,7 @@ export default function App() {
                 onChange={(e) =>
                   setExpenseForm({ ...expenseForm, category: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               >
                 <option value="Bahan Baku Utama">Bahan Baku Utama</option>
                 <option value="Kemasan">Kemasan</option>
@@ -2775,7 +2724,7 @@ export default function App() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Nama Barang / Bahan
               </label>
               <input
@@ -2786,11 +2735,11 @@ export default function App() {
                 onChange={(e) =>
                   setExpenseForm({ ...expenseForm, description: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Nominal Belanja (Rp)
               </label>
               <input
@@ -2802,20 +2751,20 @@ export default function App() {
                 onChange={(e) =>
                   setExpenseForm({ ...expenseForm, amount: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setExpenseModal(false)}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#DC2626] hover:bg-red-700 rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#C4242A] hover:bg-red-700 rounded-md"
               >
                 Simpan & Potong Kas
               </button>
@@ -2829,14 +2778,14 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleEditExpenseSave}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#D97706]"
+            className="bg-white rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]"
           >
-            <div className="flex items-center gap-2 text-[#D97706] font-extrabold">
+            <div className="flex items-center gap-2 text-[#92400E] font-semibold">
               <Pencil className="w-5 h-5" />
               <h3>Edit Catatan Belanja</h3>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Kategori
               </label>
               <select
@@ -2844,7 +2793,7 @@ export default function App() {
                 onChange={(e) =>
                   setEditExpenseForm({ ...editExpenseForm, category: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               >
                 <option value="Bahan Baku Utama">Bahan Baku Utama</option>
                 <option value="Kemasan">Kemasan</option>
@@ -2852,7 +2801,7 @@ export default function App() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Keterangan Barang
               </label>
               <input
@@ -2862,11 +2811,11 @@ export default function App() {
                 onChange={(e) =>
                   setEditExpenseForm({ ...editExpenseForm, description: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Nominal (Rp)
               </label>
               <input
@@ -2877,20 +2826,20 @@ export default function App() {
                 onChange={(e) =>
                   setEditExpenseForm({ ...editExpenseForm, amount: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setEditExpenseModal(null)}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#D97706] hover:bg-amber-700 rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#92400E] hover:bg-amber-700 rounded-md"
               >
                 Update Belanja
               </button>
@@ -2904,14 +2853,14 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleSaveOutlet}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#5C3A21]"
+            className="bg-white rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]"
           >
-            <div className="flex items-center gap-2 text-[#5C3A21] font-extrabold">
+            <div className="flex items-center gap-2 text-[#5C3A21] font-semibold">
               <Store className="w-5 h-5" />
               <h3>{outletModal.id ? 'Edit Outlet Mitra' : 'Tambah Outlet Mitra Baru'}</h3>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Nama Outlet
               </label>
               <input
@@ -2920,11 +2869,11 @@ export default function App() {
                 placeholder="Contoh: P. TANJUNG"
                 value={outletModal.name}
                 onChange={(e) => setOutletModal({ ...outletModal, name: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Nomor Kontak / WA
               </label>
               <input
@@ -2932,20 +2881,20 @@ export default function App() {
                 placeholder="0812-xxxx-xxxx"
                 value={outletModal.contact ?? ''}
                 onChange={(e) => setOutletModal({ ...outletModal, contact: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setOutletModal(null)}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#5C3A21] hover:bg-[#4A2E1B] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#5C3A21] hover:bg-[#4A2E1B] rounded-md"
               >
                 Simpan Outlet
               </button>
@@ -2959,14 +2908,14 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form
             onSubmit={handleSaveVariant}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border-t-4 border-[#5C3A21]"
+            className="bg-white rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]"
           >
-            <div className="flex items-center gap-2 text-[#5C3A21] font-extrabold">
+            <div className="flex items-center gap-2 text-[#5C3A21] font-semibold">
               <Plus className="w-5 h-5" />
               <h3>{variantForm.id ? 'Edit Varian Pudding' : 'Tambah Varian Pudding Baru'}</h3>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Nama Varian
               </label>
               <input
@@ -2977,11 +2926,11 @@ export default function App() {
                 onChange={(e) =>
                   setVariantForm({ ...variantForm, name: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4A3F35] mb-1">
+              <label className="block text-xs font-bold text-[#3D3D3D] mb-1">
                 Harga per Cup (Rp)
               </label>
               <input
@@ -2992,20 +2941,20 @@ export default function App() {
                 onChange={(e) =>
                   setVariantForm({ ...variantForm, price: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm border border-[#E6DFD5] rounded-xl"
+                className="w-full px-3 py-2 text-sm border border-[#E6E5E2] rounded-md"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setVariantModal(false)}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#5C3A21] hover:bg-[#4A2E1B] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#5C3A21] hover:bg-[#4A2E1B] rounded-md"
               >
                 Simpan Varian
               </button>
@@ -3017,12 +2966,12 @@ export default function App() {
       {/* MODAL 8: KONFIRMASI HAPUS (MERAH PRIMER) */}
       {deleteDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl border-t-4 border-[#DC2626]">
-            <div className="flex items-center gap-2 text-[#DC2626] font-extrabold">
+          <div className="bg-white rounded-lg max-w-sm w-full p-6 space-y-4 shadow-xl border-t border-[#E6E5E2]">
+            <div className="flex items-center gap-2 text-[#C4242A] font-semibold">
               <Trash2 className="w-5 h-5" />
               <h3>Konfirmasi Hapus</h3>
             </div>
-            <p className="text-xs text-[#4A3F35]">
+            <p className="text-xs text-[#3D3D3D]">
               Apakah Anda yakin ingin menghapus data berikut secara permanen:{' '}
               <strong className="text-[#141414]">{deleteDialog.title}</strong>?
             </p>
@@ -3030,14 +2979,14 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setDeleteDialog(null)}
-                className="px-4 py-2 text-xs font-bold text-[#4A3F35] bg-[#FAF8F5] rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-[#3D3D3D] bg-[#F4F3F0] rounded-md"
               >
                 Batal
               </button>
               <button
                 type="button"
                 onClick={confirmDeleteAction}
-                className="px-4 py-2 text-xs font-bold text-white bg-[#DC2626] hover:bg-red-700 rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#C4242A] hover:bg-red-700 rounded-md"
               >
                 Ya, Hapus
               </button>

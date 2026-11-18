@@ -1,0 +1,1782 @@
+{
+ "url": "http://localhost:3111",
+ "at": "2026-11-17T11:17:50.242Z",
+ "allow": [],
+ "viewports": [
+  {
+   "width": 1440,
+   "height": 900,
+   "load": "load",
+   "screens": 2,
+   "filled": [
+    0.54,
+    0.61
+   ],
+   "motion": {
+    "elements": 1,
+    "css": 0,
+    "transitions": 0,
+    "scripted": 1,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "page": {
+     "height": 1342,
+     "screens": 1.5,
+     "words": 257,
+     "img": 0,
+     "video": 0,
+     "canvas": 0,
+     "svg": 27,
+     "sections": 2,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 0,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 0,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "Dashboard",
+     "words": 1,
+     "chars": 9,
+     "lines": 1,
+     "size": 24,
+     "vw": 1.7,
+     "font": "Geist",
+     "weight": 600,
+     "tracking": -0.02,
+     "leading": 1.33,
+     "top": 64,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "h1": {
+     "text": "Dashboard",
+     "words": 1,
+     "lines": 1,
+     "size": 24,
+     "font": "Geist"
+    },
+    "headings": [
+     {
+      "text": "Rp 0",
+      "words": 2,
+      "chars": 4,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.16,
+      "top": 187,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Rp 95.000",
+      "words": 2,
+      "chars": 9,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.16,
+      "top": 187,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Rp 138.000",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.16,
+      "top": 187,
+      "tag": "p",
+      "kind": "heading"
+     },
+     {
+      "text": "-Rp 43.000",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.16,
+      "top": 187,
+      "tag": "p",
+      "kind": "statement"
+     }
+    ],
+    "headingSummary": {
+     "count": 4,
+     "maxLines": 1,
+     "over2Lines": 0,
+     "statements": 3,
+     "centered": 0,
+     "medianWords": null,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Geist",
+       "share": 1,
+       "mono": false
+      }
+     ],
+     "familyCount": 1,
+     "sizes": [
+      12,
+      14,
+      16,
+      18,
+      24,
+      30
+     ],
+     "sizeCount": 6,
+     "notLoaded": [],
+     "body": {
+      "font": "Geist",
+      "size": 14,
+      "leading": 1.43,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 4.8
+     },
+     "measureChars": 155,
+     "max": {
+      "size": 30,
+      "vw": 2.1,
+      "font": "Geist",
+      "text": "Rp 0"
+     },
+     "monoShare": 0,
+     "monoProseShare": 0,
+     "monoFamilies": [],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0.04,
+     "centerShare": 0.11,
+     "smallText": 40
+    },
+    "eyebrows": [
+     {
+      "text": "Piutang",
+      "above": "Rp 0",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 165
+     },
+     {
+      "text": "Uang masuk",
+      "above": "Rp 95.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 165
+     },
+     {
+      "text": "Belanja bahan",
+      "above": "Rp 138.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 165
+     },
+     {
+      "text": "Kas bersih",
+      "above": "-Rp 43.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 165
+     }
+    ],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#f4f3f0",
+     "bodyBgHsl": {
+      "h": 45,
+      "s": 0.15,
+      "l": 0.95
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f4f3f0",
+       "top": 0,
+       "hsl": {
+        "h": 45,
+        "s": 0.15,
+        "l": 0.95
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 334,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#6b6b6b",
+       "share": 0.56
+      },
+      {
+       "color": "#141414",
+       "share": 0.36
+      },
+      {
+       "color": "#5f5f5f",
+       "share": 0.05
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.01
+      },
+      {
+       "color": "#1e5b24",
+       "share": 0.01
+      }
+     ],
+     "button": {
+      "bg": "#e9e8e5",
+      "hsl": {
+       "h": 45,
+       "s": 0.08,
+       "l": 0.91
+      },
+      "fg": "#141414"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 11,
+     "inHero": 7,
+     "radius": 6,
+     "height": 28,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "Dashboard",
+      "Cek sisa (8 cup)",
+      "Input sisa",
+      "Input sisa",
+      "Cek sisa (6 cup)"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 1,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 13,
+     "hairlineSamples": [
+      "aside.w-full.md:w-56 224px",
+      "div.px-5.py-4 1086px",
+      "div.flex.flex-col 806px",
+      "div.flex.flex-col 806px",
+      "div.px-5.py-4 1086px"
+     ],
+     "outlinedBoxes": 2,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 2,
+     "boxRadius": 8,
+     "squareMedia": 0,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": [
+      {
+       "count": 4,
+       "iconTopped": false,
+       "rounded": false,
+       "top": 145
+      }
+     ]
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 0,
+     "fixed": false,
+     "height": 188,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "geist",
+     "__nextjs-geist"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "pageH": 1342,
+    "margins": {
+     "left": 12,
+     "right": 117
+    },
+    "sections": [
+     {
+      "sel": "section.grid.grid-cols-2",
+      "tag": "section",
+      "top": 144,
+      "height": 122,
+      "words": 33,
+      "media": 0,
+      "middle": 130,
+      "heading": {
+       "text": "Rp 0",
+       "size": 30,
+       "tag": "p"
+      },
+      "left": 277,
+      "right": 141,
+      "textLeft": 277,
+      "textRight": 141,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.space-y-4",
+      "tag": "section",
+      "top": 290,
+      "height": 956,
+      "words": 154,
+      "media": 0,
+      "middle": 441,
+      "heading": {
+       "text": "Outlet mitra",
+       "size": 18,
+       "tag": "h2"
+      },
+      "left": 256,
+      "right": 96,
+      "textLeft": 256,
+      "textRight": 96,
+      "fullBleed": false,
+      "footer": true,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [],
+    "h1s": [
+     {
+      "text": "Dashboard",
+      "size": 24,
+      "top": 64,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 277,
+      "n": 5
+     },
+     {
+      "x": 256,
+      "n": 3
+     }
+    ],
+    "leftBlocks": 8,
+    "bodySize": 14,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0.19,
+    "voidBox": {
+     "x": 720,
+     "y": 300,
+     "w": 420,
+     "h": 600
+    }
+   },
+   "app": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "dark": false,
+    "ground": "#f4f3f0",
+    "sidebar": {
+     "w": 224,
+     "tag": "aside",
+     "links": 5,
+     "share": 0.16
+    },
+    "topbar": null,
+    "canvas": {
+     "left": 46,
+     "right": 117
+    },
+    "hero": {
+     "text": "Dashboard",
+     "words": 1,
+     "chars": 9,
+     "lines": 1,
+     "size": 24,
+     "vw": 1.7,
+     "font": "Geist",
+     "weight": 600,
+     "tracking": -0.02,
+     "leading": 1.33,
+     "top": 64,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "charts": 0,
+    "layout": {
+     "panels": 2,
+     "firstScreen": 2,
+     "ragged": [],
+     "voids": []
+    },
+    "tiles": 0,
+    "panels": {
+     "count": 6,
+     "radii": [
+      [
+       0,
+       4
+      ],
+      [
+       8,
+       2
+      ]
+     ],
+     "heavyBorders": 0,
+     "borderSamples": [],
+     "heavyShadows": 0,
+     "softShadows": 0,
+     "shadowSamples": [],
+     "glass": 0
+    },
+    "chips": {
+     "count": 0,
+     "hues": 0,
+     "samples": []
+    },
+    "numbers": {
+     "cells": 0,
+     "leftAligned": 0,
+     "figures": 0,
+     "tabularShare": null,
+     "kpiMax": null
+    },
+    "rows": null,
+    "chartHues": 0,
+    "placeholders": [],
+    "type": {
+     "under13": 0.78,
+     "tiny": 0,
+     "tinySamples": [],
+     "sizes": [
+      12,
+      14,
+      16,
+      18,
+      24,
+      30
+     ]
+    },
+    "title": {
+     "text": "Dashboard",
+     "size": 24,
+     "top": 64
+    },
+    "colourShare": 0.005
+   },
+   "consoleErrors": []
+  },
+  {
+   "width": 768,
+   "height": 1024,
+   "load": "load",
+   "screens": 3,
+   "filled": [
+    0.54,
+    0.39,
+    0.52
+   ],
+   "motion": {
+    "elements": 1,
+    "css": 0,
+    "transitions": 0,
+    "scripted": 1,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 768,
+     "h": 1024
+    },
+    "page": {
+     "height": 2063,
+     "screens": 2,
+     "words": 257,
+     "img": 0,
+     "video": 0,
+     "canvas": 0,
+     "svg": 27,
+     "sections": 2,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 0,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 0,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "Dashboard",
+     "words": 1,
+     "chars": 9,
+     "lines": 1,
+     "size": 24,
+     "vw": 3.1,
+     "font": "Geist",
+     "weight": 600,
+     "tracking": -0.02,
+     "leading": 1.33,
+     "top": 64,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "h1": {
+     "text": "Dashboard",
+     "words": 1,
+     "lines": 1,
+     "size": 24,
+     "font": "Geist"
+    },
+    "headings": [
+     {
+      "text": "Rp 0",
+      "words": 2,
+      "chars": 4,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.27,
+      "top": 187,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Rp 95.000",
+      "words": 2,
+      "chars": 9,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.27,
+      "top": 187,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Rp 138.000",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.27,
+      "top": 308,
+      "tag": "p",
+      "kind": "heading"
+     },
+     {
+      "text": "-Rp 43.000",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.2,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.27,
+      "top": 308,
+      "tag": "p",
+      "kind": "statement"
+     }
+    ],
+    "headingSummary": {
+     "count": 4,
+     "maxLines": 1,
+     "over2Lines": 0,
+     "statements": 3,
+     "centered": 0,
+     "medianWords": 2,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Geist",
+       "share": 1,
+       "mono": false
+      }
+     ],
+     "familyCount": 1,
+     "sizes": [
+      12,
+      14,
+      16,
+      18,
+      24,
+      30
+     ],
+     "sizeCount": 6,
+     "notLoaded": [],
+     "body": {
+      "font": "Geist",
+      "size": 14,
+      "leading": 1.43,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 4.8
+     },
+     "measureChars": 71,
+     "max": {
+      "size": 30,
+      "vw": 3.9,
+      "font": "Geist",
+      "text": "Rp 0"
+     },
+     "monoShare": 0,
+     "monoProseShare": 0,
+     "monoFamilies": [],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0.04,
+     "centerShare": 0.11,
+     "smallText": 40
+    },
+    "eyebrows": [
+     {
+      "text": "Piutang",
+      "above": "Rp 0",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 165
+     },
+     {
+      "text": "Uang masuk",
+      "above": "Rp 95.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 165
+     },
+     {
+      "text": "Belanja bahan",
+      "above": "Rp 138.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 286
+     },
+     {
+      "text": "Kas bersih",
+      "above": "-Rp 43.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 286
+     }
+    ],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#f4f3f0",
+     "bodyBgHsl": {
+      "h": 45,
+      "s": 0.15,
+      "l": 0.95
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f4f3f0",
+       "top": 0,
+       "hsl": {
+        "h": 45,
+        "s": 0.15,
+        "l": 0.95
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 455,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#6b6b6b",
+       "share": 0.56
+      },
+      {
+       "color": "#141414",
+       "share": 0.36
+      },
+      {
+       "color": "#5f5f5f",
+       "share": 0.05
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.01
+      },
+      {
+       "color": "#1e5b24",
+       "share": 0.01
+      }
+     ],
+     "button": {
+      "bg": "#e9e8e5",
+      "hsl": {
+       "h": 45,
+       "s": 0.08,
+       "l": 0.91
+      },
+      "fg": "#141414"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 11,
+     "inHero": 5,
+     "radius": 6,
+     "height": 28,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "Dashboard",
+      "Cek sisa (8 cup)",
+      "Input sisa",
+      "Input sisa",
+      "Chat AI Melpud"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 1,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 13,
+     "hairlineSamples": [
+      "aside.w-full.md:w-56 224px",
+      "div.px-5.py-4 494px",
+      "div.flex.flex-col 454px",
+      "div.flex.flex-col 454px",
+      "div.px-5.py-4 494px"
+     ],
+     "outlinedBoxes": 2,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 2,
+     "boxRadius": 8,
+     "squareMedia": 0,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": [
+      {
+       "count": 4,
+       "iconTopped": false,
+       "rounded": false,
+       "top": 145
+      }
+     ]
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 0,
+     "fixed": false,
+     "height": 188,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "geist",
+     "__nextjs-geist"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 768,
+     "h": 1024
+    },
+    "pageH": 2063,
+    "margins": {
+     "left": 12,
+     "right": 45
+    },
+    "sections": [
+     {
+      "sel": "section.grid.grid-cols-2",
+      "tag": "section",
+      "top": 144,
+      "height": 243,
+      "words": 33,
+      "media": 0,
+      "middle": 79,
+      "heading": {
+       "text": "Rp 0",
+       "size": 30,
+       "tag": "p"
+      },
+      "left": 269,
+      "right": 45,
+      "textLeft": 269,
+      "textRight": 45,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.space-y-4",
+      "tag": "section",
+      "top": 411,
+      "height": 1556,
+      "words": 154,
+      "media": 0,
+      "middle": 89,
+      "heading": {
+       "text": "Outlet mitra",
+       "size": 18,
+       "tag": "h2"
+      },
+      "left": 248,
+      "right": 24,
+      "textLeft": 248,
+      "textRight": 24,
+      "fullBleed": false,
+      "footer": true,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [],
+    "h1s": [
+     {
+      "text": "Dashboard",
+      "size": 24,
+      "top": 64,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 269,
+      "n": 5
+     },
+     {
+      "x": 248,
+      "n": 3
+     }
+    ],
+    "leftBlocks": 8,
+    "bodySize": 14,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": {
+    "viewport": {
+     "w": 768,
+     "h": 1024
+    },
+    "dark": false,
+    "ground": "#f4f3f0",
+    "sidebar": {
+     "w": 224,
+     "tag": "aside",
+     "links": 5,
+     "share": 0.29
+    },
+    "topbar": null,
+    "canvas": {
+     "left": 38,
+     "right": 45
+    },
+    "hero": {
+     "text": "Dashboard",
+     "words": 1,
+     "chars": 9,
+     "lines": 1,
+     "size": 24,
+     "vw": 3.1,
+     "font": "Geist",
+     "weight": 600,
+     "tracking": -0.02,
+     "leading": 1.33,
+     "top": 64,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "charts": 0,
+    "layout": {
+     "panels": 2,
+     "firstScreen": 2,
+     "ragged": [],
+     "voids": []
+    },
+    "tiles": 0,
+    "panels": {
+     "count": 6,
+     "radii": [
+      [
+       0,
+       4
+      ],
+      [
+       8,
+       2
+      ]
+     ],
+     "heavyBorders": 0,
+     "borderSamples": [],
+     "heavyShadows": 0,
+     "softShadows": 0,
+     "shadowSamples": [],
+     "glass": 0
+    },
+    "chips": {
+     "count": 0,
+     "hues": 0,
+     "samples": []
+    },
+    "numbers": {
+     "cells": 0,
+     "leftAligned": 0,
+     "figures": 0,
+     "tabularShare": null,
+     "kpiMax": null
+    },
+    "rows": null,
+    "chartHues": 0,
+    "placeholders": [],
+    "type": {
+     "under13": 0.78,
+     "tiny": 0,
+     "tinySamples": [],
+     "sizes": [
+      12,
+      14,
+      16,
+      18,
+      24,
+      30
+     ]
+    },
+    "title": {
+     "text": "Dashboard",
+     "size": 24,
+     "top": 64
+    },
+    "colourShare": 0.009
+   },
+   "consoleErrors": []
+  },
+  {
+   "width": 390,
+   "height": 844,
+   "load": "load",
+   "screens": 3,
+   "filled": [
+    0.57,
+    0.56,
+    0.51
+   ],
+   "motion": {
+    "elements": 1,
+    "css": 0,
+    "transitions": 0,
+    "scripted": 1,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 390,
+     "h": 844
+    },
+    "page": {
+     "height": 2527,
+     "screens": 3,
+     "words": 257,
+     "img": 0,
+     "video": 0,
+     "canvas": 0,
+     "svg": 27,
+     "sections": 2,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 0,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 0,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "Dashboard",
+     "words": 1,
+     "chars": 9,
+     "lines": 1,
+     "size": 24,
+     "vw": 6.2,
+     "font": "Geist",
+     "weight": 600,
+     "tracking": -0.02,
+     "leading": 1.33,
+     "top": 194,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "h1": {
+     "text": "Dashboard",
+     "words": 1,
+     "lines": 1,
+     "size": 24,
+     "font": "Geist"
+    },
+    "headings": [
+     {
+      "text": "Dashboard",
+      "words": 1,
+      "chars": 9,
+      "lines": 1,
+      "size": 24,
+      "vw": 6.2,
+      "font": "Geist",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.33,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 194,
+      "tag": "h1",
+      "kind": "heading"
+     },
+     {
+      "text": "Rp 0",
+      "words": 2,
+      "chars": 4,
+      "lines": 1,
+      "size": 24,
+      "vw": 6.2,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.33,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.37,
+      "top": 333,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Rp 95.000",
+      "words": 2,
+      "chars": 9,
+      "lines": 1,
+      "size": 24,
+      "vw": 6.2,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.33,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.37,
+      "top": 333,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Rp 138.000",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 24,
+      "vw": 6.2,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.33,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.37,
+      "top": 458,
+      "tag": "p",
+      "kind": "heading"
+     },
+     {
+      "text": "-Rp 43.000",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 24,
+      "vw": 6.2,
+      "font": "Geist",
+      "weight": 700,
+      "tracking": 0,
+      "leading": 1.33,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.37,
+      "top": 458,
+      "tag": "p",
+      "kind": "statement"
+     }
+    ],
+    "headingSummary": {
+     "count": 5,
+     "maxLines": 1,
+     "over2Lines": 0,
+     "statements": 3,
+     "centered": 0,
+     "medianWords": 2,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Geist",
+       "share": 1,
+       "mono": false
+      }
+     ],
+     "familyCount": 1,
+     "sizes": [
+      12,
+      14,
+      16,
+      18,
+      24
+     ],
+     "sizeCount": 5,
+     "notLoaded": [],
+     "body": {
+      "font": "Geist",
+      "size": 14,
+      "leading": 1.43,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 4.8
+     },
+     "measureChars": 51,
+     "max": {
+      "size": 24,
+      "vw": 6.2,
+      "font": "Geist",
+      "text": "Dashboard"
+     },
+     "monoShare": 0,
+     "monoProseShare": 0,
+     "monoFamilies": [],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0.04,
+     "centerShare": 0.11,
+     "smallText": 40
+    },
+    "eyebrows": [
+     {
+      "text": "Supabase terhubung",
+      "above": "Dashboard",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 154
+     },
+     {
+      "text": "Piutang",
+      "above": "Rp 0",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 311
+     },
+     {
+      "text": "Uang masuk",
+      "above": "Rp 95.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 311
+     },
+     {
+      "text": "Belanja bahan",
+      "above": "Rp 138.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 436
+     },
+     {
+      "text": "Kas bersih",
+      "above": "-Rp 43.000",
+      "upper": false,
+      "tracked": false,
+      "mono": false,
+      "pill": false,
+      "size": 12,
+      "top": 436
+     }
+    ],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#f4f3f0",
+     "bodyBgHsl": {
+      "h": 45,
+      "s": 0.15,
+      "l": 0.95
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f4f3f0",
+       "top": 0,
+       "hsl": {
+        "h": 45,
+        "s": 0.15,
+        "l": 0.95
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 637,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#6b6b6b",
+       "share": 0.56
+      },
+      {
+       "color": "#141414",
+       "share": 0.36
+      },
+      {
+       "color": "#5f5f5f",
+       "share": 0.05
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.01
+      },
+      {
+       "color": "#1e5b24",
+       "share": 0.01
+      }
+     ],
+     "button": {
+      "bg": "#e9e8e5",
+      "hsl": {
+       "h": 45,
+       "s": 0.08,
+       "l": 0.91
+      },
+      "fg": "#141414"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 11,
+     "inHero": 2,
+     "radius": 6,
+     "height": 28,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "Dashboard",
+      "Chat AI Melpud"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 1,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 13,
+     "hairlineSamples": [
+      "aside.w-full.md:w-56 390px",
+      "div.px-5.py-4 356px",
+      "div.flex.flex-col 316px",
+      "div.flex.flex-col 316px",
+      "div.px-5.py-4 356px"
+     ],
+     "outlinedBoxes": 2,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 2,
+     "boxRadius": 8,
+     "squareMedia": 0,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": [
+      {
+       "count": 4,
+       "iconTopped": false,
+       "rounded": false,
+       "top": 295
+      }
+     ]
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 0,
+     "fixed": false,
+     "height": 40,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "geist",
+     "__nextjs-geist"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 390,
+     "h": 844
+    },
+    "pageH": 2527,
+    "margins": {
+     "left": 16,
+     "right": 49
+    },
+    "sections": [
+     {
+      "sel": "aside.w-full.md:w-56",
+      "tag": "aside",
+      "top": 0,
+      "height": 130,
+      "words": 10,
+      "media": 0,
+      "middle": 264,
+      "heading": null,
+      "left": 16,
+      "right": 0,
+      "textLeft": 54,
+      "textRight": 16,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.grid.grid-cols-2",
+      "tag": "section",
+      "top": 294,
+      "height": 251,
+      "words": 33,
+      "media": 0,
+      "middle": 36,
+      "heading": {
+       "text": "Rp 0",
+       "size": 24,
+       "tag": "p"
+      },
+      "left": 33,
+      "right": 39,
+      "textLeft": 33,
+      "textRight": 39,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section.space-y-4",
+      "tag": "section",
+      "top": 569,
+      "height": 1862,
+      "words": 154,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Outlet mitra",
+       "size": 18,
+       "tag": "h2"
+      },
+      "left": 16,
+      "right": 155,
+      "textLeft": 16,
+      "textRight": 155,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     }
+    ],
+    "gaps": [],
+    "h1s": [
+     {
+      "text": "Dashboard",
+      "size": 24,
+      "top": 194,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 37,
+      "n": 5
+     },
+     {
+      "x": 16,
+      "n": 3
+     }
+    ],
+    "leftBlocks": 8,
+    "bodySize": 14,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": {
+    "viewport": {
+     "w": 390,
+     "h": 844
+    },
+    "dark": false,
+    "ground": "#f4f3f0",
+    "sidebar": null,
+    "topbar": null,
+    "canvas": {
+     "left": 16,
+     "right": -262
+    },
+    "hero": {
+     "text": "Dashboard",
+     "words": 1,
+     "chars": 9,
+     "lines": 1,
+     "size": 24,
+     "vw": 6.2,
+     "font": "Geist",
+     "weight": 600,
+     "tracking": -0.02,
+     "leading": 1.33,
+     "top": 194,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "charts": 0,
+    "layout": {
+     "panels": 2,
+     "firstScreen": 2,
+     "ragged": [],
+     "voids": []
+    },
+    "tiles": 0,
+    "panels": {
+     "count": 14,
+     "radii": [
+      [
+       0,
+       12
+      ],
+      [
+       8,
+       2
+      ]
+     ],
+     "heavyBorders": 0,
+     "borderSamples": [],
+     "heavyShadows": 0,
+     "softShadows": 0,
+     "shadowSamples": [],
+     "glass": 0
+    },
+    "chips": {
+     "count": 0,
+     "hues": 0,
+     "samples": []
+    },
+    "numbers": {
+     "cells": 0,
+     "leftAligned": 0,
+     "figures": 0,
+     "tabularShare": null,
+     "kpiMax": null
+    },
+    "rows": null,
+    "chartHues": 0,
+    "placeholders": [],
+    "type": {
+     "under13": 0.78,
+     "tiny": 0,
+     "tinySamples": [],
+     "sizes": [
+      12,
+      14,
+      16,
+      18,
+      24
+     ]
+    },
+    "title": {
+     "text": "Dashboard",
+     "size": 24,
+     "top": 194
+    },
+    "colourShare": 0.018
+   },
+   "consoleErrors": []
+  }
+ ],
+ "findings": [
+  {
+   "level": "WARN",
+   "id": "tiny-text",
+   "width": 1440,
+   "message": "78% of the text is under 13px.",
+   "fix": "Data and labels read at 13–14px; keep 11–12px for sublines and axis ticks.",
+   "alsoAt": [
+    768,
+    390
+   ]
+  }
+ ],
+ "images": [
+  {
+   "viewport": "desktop",
+   "width": 1440,
+   "fold": "C:\\Users\\BAGAS\\orca\\workspaces\\adminmelpud\\taimen\\.taste-skill\\after-3\\desktop-fold.jpg",
+   "pages": [
+    "C:\\Users\\BAGAS\\orca\\workspaces\\adminmelpud\\taimen\\.taste-skill\\after-3\\desktop-page-01.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "tablet",
+   "width": 768,
+   "fold": "C:\\Users\\BAGAS\\orca\\workspaces\\adminmelpud\\taimen\\.taste-skill\\after-3\\tablet-fold.jpg",
+   "pages": [
+    "C:\\Users\\BAGAS\\orca\\workspaces\\adminmelpud\\taimen\\.taste-skill\\after-3\\tablet-page-01.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "mobile",
+   "width": 390,
+   "fold": "C:\\Users\\BAGAS\\orca\\workspaces\\adminmelpud\\taimen\\.taste-skill\\after-3\\mobile-fold.jpg",
+   "pages": [
+    "C:\\Users\\BAGAS\\orca\\workspaces\\adminmelpud\\taimen\\.taste-skill\\after-3\\mobile-page-01.jpg"
+   ],
+   "film": []
+  }
+ ]
+}
